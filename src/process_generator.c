@@ -4,6 +4,7 @@
 #include <unistd.h>    // for fork, execl
 #include <sys/types.h> // for pid_t
 #include "clk.h"
+#include "data_structures/headers.h"
 
 void clear_resources(int);
 int main(int argc, char * argv[])

@@ -51,6 +51,7 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+bin
 src/bin
 src/obj
 processes.txt
