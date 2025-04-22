@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct ListNode {
     void* data;
