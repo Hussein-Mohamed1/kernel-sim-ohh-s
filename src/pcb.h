@@ -1,7 +1,4 @@
-#ifndef PCB_H
-#define PCB_H
-
-#include "headers.h"
+#pragma once
 
 // Process Control Block (PCB)
 typedef struct {
@@ -20,11 +17,3 @@ typedef struct {
     int status;             
     int pid;             
 } PCB;
-
-// Structure for ready queue node
-typedef struct Node {
-    PCB process;
-    struct Node *next;
-} Node;
-
-#endif // PCB_H

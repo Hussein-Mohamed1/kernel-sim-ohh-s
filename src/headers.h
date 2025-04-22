@@ -1,24 +1,26 @@
 #pragma once
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-#include <sys/shm.h>
-#include <sys/sem.h>
-#include <string.h>
-#include <math.h>
-#include "clk.h"
-#include "process.h"
-#include "pcb.h"
-#include "scheduler.h"
+
+// Message structure for IPC
+typedef struct
+{
+    long mtype;
+    int process_id;
+    int arrival_time;
+    int runtime;
+    int priority;
+    int remaining_time;
+} ProcessMessage;
+
 
 // Constants
 #define READY 0
 #define RUNNING 1
-#define TERMINATED 2
+#define TERMINATED 2 // I Think using this is wrong, d
+
+// Extra States (IDK if we'll use them)
+#define BLOCKED 2
+#define PAUSED 3
+#define PAUSED 4
 
 // Scheduling algorithms
 #define HPF 1
@@ -28,4 +30,3 @@
 // Message types
 #define PROCESS_ARRIVED 1
 #define PROCESS_FINISHED 2
-

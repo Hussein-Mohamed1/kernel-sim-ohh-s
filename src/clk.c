@@ -64,15 +64,15 @@ int get_clk()
 
 void sync_clk()
 {
-    int shmid = shmget(SHKEY, 4, 0444);
-    while ((int)shmid == -1)
+    int shmidLocal = shmget(SHKEY, 4, 0444);
+    while ((int)shmidLocal == -1)
     {
         // Make sure that the clock exists
         printf("Wait! The clock not initialized yet!\n");
         sleep(1);
-        shmid = shmget(SHKEY, 4, 0444);
+        shmidLocal = shmget(SHKEY, 4, 0444);
     }
-    shmaddr = (int *)shmat(shmid, (void *)0, 0);
+    shmaddr = (int *)shmat(shmidLocal, (void *)0, 0);
 }
 
 void destroy_clk(short terminateAll)
