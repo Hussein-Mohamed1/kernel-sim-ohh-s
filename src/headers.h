@@ -1,5 +1,4 @@
 #pragma once
-
 // Message structure for IPC
 typedef struct
 {
