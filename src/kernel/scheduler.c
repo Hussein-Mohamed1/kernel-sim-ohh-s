@@ -438,8 +438,10 @@ void child_cleanup()
                     // Only access if malloc succeeded
                     finished_process_info[finished_processes_count]->ta = current_time - running_process
                         ->arrival_time;
-                    finished_process_info[finished_processes_count]->wta = (float)(finished_process_info[
-                        finished_processes_count]->ta) / running_process->runtime;
+                        finished_process_info[finished_processes_count]->wta = 
+                        (running_process->runtime > 0) ? 
+                        ((float)(finished_process_info[finished_processes_count]->ta) / running_process->runtime) : 
+                        0.0;
                     finished_process_info[finished_processes_count]->waiting_time = running_process->waiting_time;
                 }
             }
