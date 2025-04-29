@@ -10,7 +10,8 @@ int create_shared_memory(key_t key)
     int shmid = shmget(key, sizeof(process_info_t), IPC_CREAT | 0666);
     if (shmid == -1)
     {
-        perror("Error creating shared memory");
+        if (DEBUG)
+            perror("Error creating shared memory");
         return -1;
     }
 
@@ -18,7 +19,9 @@ int create_shared_memory(key_t key)
     process_info_t* shm = (process_info_t*)shmat(shmid, NULL, 0);
     if ((void*)shm == (void*)-1)
     {
-        perror("Error attaching shared memory");
+        if (DEBUG)
+
+            perror("Error attaching shared memory");
         return -1;
     }
 
@@ -28,7 +31,8 @@ int create_shared_memory(key_t key)
     shm->current_clk = -1; // initialize
 
     shmdt(shm);
-    printf(ANSI_COLOR_BLUE"[SHARED_MEM] Shared memory created with ID: %d\n"ANSI_COLOR_RESET, shmid);
+    if (DEBUG)
+        printf(ANSI_COLOR_BLUE"[SHARED_MEM] Shared memory created with ID: %d\n"ANSI_COLOR_RESET, shmid);
     return shmid;
 }
 
@@ -69,7 +73,8 @@ int get_shared_memory(key_t key)
     int shmid = shmget(key, sizeof(process_info_t) * MAX_PROCESSES, 0666);
     if (shmid == -1)
     {
-        perror("Error getting shared memory");
+        if (DEBUG)
+            perror("Error getting shared memory");
         return -1;
     }
     return shmid;
@@ -80,6 +85,7 @@ void cleanup_shared_memory(int shmid)
     if (shmid != -1)
     {
         shmctl(shmid, IPC_RMID, NULL);
-        printf(ANSI_COLOR_BLUE"[SHARED_MEM] Shared memory with ID %d removed\n"ANSI_COLOR_RESET, shmid);
+        if (DEBUG)
+            printf(ANSI_COLOR_BLUE"[SHARED_MEM] Shared memory with ID %d removed\n"ANSI_COLOR_RESET, shmid);
     }
 }

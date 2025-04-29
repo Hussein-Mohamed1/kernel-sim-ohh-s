@@ -76,6 +76,7 @@ void sync_clk()
     while ((int)shmidLocal == -1)
     {
         // Make sure that the clock exists
+        if(DEBUG)
         printf(ANSI_COLOR_CYAN"[CLOCK] Wait! The clock not initialized yet!\n"ANSI_COLOR_RESET);
         sleep(1);
         shmidLocal = shmget(SHKEY, 4, 0444);

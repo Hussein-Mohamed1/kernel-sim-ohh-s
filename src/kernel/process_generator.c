@@ -157,7 +157,8 @@ int main(int argc, char* argv[])
                         // Send the message
                         if (msgsnd(msgid, &proc_pcb, sizeof(PCB), 0) == -1)
                         {
-                            perror("Error sending message");
+                            if (DEBUG)
+                                perror("Error sending message");
                         }
 
                         // Cleanup
@@ -169,11 +170,12 @@ int main(int argc, char* argv[])
                         break;
                 }
 
-                if (messages_sent > 0)
+                if (messages_sent > 0 && DEBUG)
                     printf(ANSI_COLOR_MAGENTA"[MAIN] Sent %d message(s) to scheduler\n"ANSI_COLOR_RESET, messages_sent);
             }
 
-            printf(ANSI_COLOR_MAGENTA"[MAIN] All processes have been sent, exiting...\n"ANSI_COLOR_RESET);
+            if (DEBUG)
+                printf(ANSI_COLOR_MAGENTA"[MAIN] All processes have been sent, exiting...\n"ANSI_COLOR_RESET);
             process_generator_cleanup(0);
             exit(0);
         }
@@ -187,7 +189,8 @@ int main(int argc, char* argv[])
     }
     else
     {
-        printf(ANSI_COLOR_MAGENTA"[MAIN] Running Scheduler with pid: %d\n"ANSI_COLOR_RESET, getpid());
+        if (DEBUG)
+            printf(ANSI_COLOR_MAGENTA"[MAIN] Running Scheduler with pid: %d\n"ANSI_COLOR_RESET, getpid());
         run_scheduler();
     }
 
@@ -268,7 +271,8 @@ processParameters** read_process_file(const char* filename, int* count)
 
     fclose(file);
 
-    printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Read %d processes from file\n"ANSI_COLOR_RESET, index);
+    if (DEBUG)
+        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Read %d processes from file\n"ANSI_COLOR_RESET, index);
 
     return process_messages;
 }
@@ -281,8 +285,10 @@ void child_process_handler(int signum)
     // Reap all terminated children
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
     {
-        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Acknowledged that child process PID: %d has died.\n"ANSI_COLOR_RESET,
-               pid);
+        if (DEBUG)
+            printf(
+                ANSI_COLOR_BLUE"[PROC_GENERATOR] Acknowledged that child process PID: %d has died.\n"ANSI_COLOR_RESET,
+                pid);
     }
 }
 
@@ -313,36 +319,41 @@ void process_generator_cleanup(int signum)
         {
             if (msgctl(msgid, IPC_STAT, &queue_info) == -1)
             {
-                perror("Error getting message queue stats");
+                if (DEBUG)
+                    perror("Error getting message queue stats");
                 break;
             }
 
             // If no messages are left in the queue, we can safely remove it
             if (queue_info.msg_qnum == 0)
             {
-                printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Message queue is empty, removing it\n"ANSI_COLOR_RESET);
+                if (DEBUG)
+                    printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Message queue is empty, removing it\n"ANSI_COLOR_RESET);
                 break;
             }
 
-            printf(
-                ANSI_COLOR_BLUE"[PROC_GENERATOR] Waiting for queue to empty: %ld messages remaining\n"ANSI_COLOR_RESET,
-                queue_info.msg_qnum);
+            if (DEBUG)
+                printf(
+                    ANSI_COLOR_BLUE"[PROC_GENERATOR] Waiting for queue to empty: %ld messages remaining\n"
+                    ANSI_COLOR_RESET,
+                    queue_info.msg_qnum);
             usleep(100000); // Sleep for 100ms before checking again
         }
 
-        // Now remove the message queue
-        if (msgctl(msgid, IPC_RMID, NULL) == -1)
+        // remove the message queue if still exists
+        struct msqid_ds queue;
+        if (msgctl(msgid, IPC_STAT, &queue) != -1)
         {
-            perror("Error removing message queue");
-        }
-        else
-        {
-            printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Message queue removed successfully\n"ANSI_COLOR_RESET);
+            msgctl(msgid, IPC_RMID, NULL);
+            msgid = -1;
+            if (DEBUG)
+                printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Message queue removed successfully\n"ANSI_COLOR_RESET);
         }
     }
 
     destroy_clk(0);
-    printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Resources cleaned up\n"ANSI_COLOR_RESET);
+    if (DEBUG)
+        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Resources cleaned up\n"ANSI_COLOR_RESET);
 
     if (signum != 0)
     {
