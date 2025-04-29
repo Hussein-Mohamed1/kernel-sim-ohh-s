@@ -68,3 +68,4 @@ CMakeLists.txt
 process
 scheduler.log
 scheduler.perf
+memory.log
