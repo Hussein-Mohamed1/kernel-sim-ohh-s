@@ -17,6 +17,7 @@
 #include "headers.h"
 #include "colors.h"
 
+#include "buddy.h"
 extern finishedProcessInfo** finished_process_info;
 // Use pointers for both possible queue types
 min_heap_t* min_heap_queue = NULL;
@@ -44,14 +45,16 @@ void run_scheduler()
     while (1)
     {
         int receive_status = receive_processes();
+        if (receive_status == -1) {
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Failed to allocate memory for a process. Terminating scheduler.\n"ANSI_COLOR_RESET);
+            break;
+        }
         if (receive_status == -2 && !process_count)
         {
             printf(
                 ANSI_COLOR_GREEN"[SCHEDULER] Message queue has been closed. Terminating scheduler.\n"ANSI_COLOR_RESET);
             break; // Exit the scheduling loop
         }
-        receive_processes();
-
 
         if (scheduler_type == HPF) // HPF
         {
@@ -308,6 +311,22 @@ int receive_processes(void)
         }
         *new_pcb = received_pcb; // shallow copy, doesnt matter
 
+        // Allocate memory for the new process (Phase 2)        
+        received_pcb.memory_start = allocate_memory(received_pcb.pid, received_pcb.memsize);
+        if (received_pcb.memory_start == -1) {
+            fprintf(stderr, "PID %d: Memory allocation failed (size=%d)\n", 
+                    received_pcb.pid, received_pcb.memsize);
+            return -1;
+        }
+
+        // Log allocation (Phase 2)
+        log_memory_op(
+            get_clk(), received_pcb.pid, received_pcb.memsize,
+            received_pcb.memory_start,
+            received_pcb.memory_start + received_pcb.memsize - 1,
+            1  // 1 = allocation
+        );
+       
         if (scheduler_type == HPF || scheduler_type == SRTN)
             min_heap_insert(min_heap_queue, new_pcb);
         else if (scheduler_type == RR)
@@ -335,7 +354,7 @@ void scheduler_cleanup(int signum)
         fclose(log_file);
         log_file = NULL;
     }
-
+    destruct_buddy();
     // Clean up shared memory
     cleanup_shared_memory(process_shm_id);
     process_shm_id = -1;
@@ -414,6 +433,16 @@ void child_cleanup()
         running_process->finish_time = current_time;
         running_process->remaining_time = 0;
         log_process_state(running_process, "finished", current_time);
+       
+        // Free the memory allocated for the process (phase 2)
+        free_memory(running_process->pid);
+        log_memory_op(
+            get_clk(), running_process->pid, running_process->memsize,
+            running_process->memory_start, 
+            running_process->memory_start + running_process->memsize - 1,
+            0  // 0 = free operation
+        );
+        
         if (finished_processes_count < MAX_INPUT_PROCESSES)
         {
             if (finished_process_info[finished_processes_count] == NULL)
@@ -458,6 +487,8 @@ int init_scheduler()
     int current_time = get_clk();
     process_count = 0;
     running_process = NULL;
+
+    init_buddy();
 
     // Initialize shared memory
     process_shm_id = create_shared_memory(SHM_KEY);

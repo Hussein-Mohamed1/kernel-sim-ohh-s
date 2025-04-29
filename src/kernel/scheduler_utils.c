@@ -262,3 +262,14 @@ void generate_statistics()
 
     free(wta_values);
 }
+void log_memory_op(int time, int pid, int size, int start, int end, int is_alloc) {
+    FILE *log = fopen("memory.log", "a");
+    if (is_alloc) {
+        fprintf(log, "At time %d allocated %d bytes for process %d from %d to %d\n",
+                time, size, pid, start, end);
+    } else {
+        fprintf(log, "At time %d freed %d bytes from process %d from %d to %d\n",
+                time, size, pid, start, end);
+    }
+    fclose(log);
+}

@@ -152,6 +152,7 @@ int main(int argc, char* argv[])
                             process_parameters[i]->runtime, process_parameters[i]->priority, 0, -1, -1, -1, -1, -1,
                             -1,
                             READY,
+                            process_parameters[i]->memsize, -1
                         };
                         // Send the message
                         if (msgsnd(msgid, &proc_pcb, sizeof(PCB), 0) == -1)
@@ -208,7 +209,7 @@ processParameters** read_process_file(const char* filename, int* count)
     }
 
     // Count lines to allocate memory
-    char line[100];
+    char line[256];
     int line_count = 0;
 
     while (fgets(line, sizeof(line), file))
@@ -248,8 +249,8 @@ processParameters** read_process_file(const char* filename, int* count)
         }
 
         // Parse process information
-        int id, arrival, runtime, priority;
-        if (sscanf(line, "%d\t%d\t%d\t%d", &id, &arrival, &runtime, &priority) == 4)
+        int id, arrival, runtime, priority, memsize;
+        if (sscanf(line, "%d\t%d\t%d\t%d\t%d", &id, &arrival, &runtime, &priority, &memsize) == 5)
         {
             // Allocate memory for each ProcessMessage
             process_messages[index] = (processParameters*)malloc(sizeof(processParameters));
@@ -260,7 +261,7 @@ processParameters** read_process_file(const char* filename, int* count)
             process_messages[index]->arrival_time = arrival;
             process_messages[index]->runtime = runtime;
             process_messages[index]->priority = priority;
-
+            process_messages[index]->memsize = memsize;
             index++;
         }
     }

@@ -17,4 +17,6 @@ typedef struct {
     int turnaround_time;
     float weighted_turnaround;
     int status;
+    int memsize;
+    int memory_start;
 } PCB;
