@@ -101,6 +101,8 @@ void run_scheduler()
         // Wait for process to complete time slice
         while (1)
         {
+            if (running_process == NULL) break;
+
             process_control_t ctrl = read_process_control(process_shm_id, running_process->pid);
 
             // Check if process finished its time slice
@@ -110,7 +112,7 @@ void run_scheduler()
             }
 
             // For SRTN, check for preemption
-            if (scheduler_type == SRTN && !min_heap_is_empty(min_heap_queue))
+            if (scheduler_type == SRTN)
             {
                 receive_processes(); // Check for new processes
 
@@ -123,7 +125,7 @@ void run_scheduler()
                     // Update process state and requeue
                     int executed_time = get_clk() - start_time;
                     running_process->remaining_time -= executed_time;
-                    running_process->status = PROC_RUNNING;
+                    running_process->status = PROC_IDLE;
                     running_process->last_run_time = get_clk();
 
                     log_process_state(running_process, "stopped", get_clk());
@@ -132,8 +134,6 @@ void run_scheduler()
                     break;
                 }
             }
-
-            // usleep(1000);
         }
 
         // Process finished its time slice
@@ -155,7 +155,7 @@ void run_scheduler()
             if (scheduler_type == RR)
             {
                 // Put process back in RR queue
-                running_process->status = PROC_RUNNING;
+                running_process->status = PROC_IDLE;
                 running_process->last_run_time = get_clk();
                 log_process_state(running_process, "stopped", get_clk());
                 enqueue(rr_queue, running_process);
@@ -164,7 +164,7 @@ void run_scheduler()
             else if (scheduler_type == SRTN)
             {
                 // Reinsert into SRTN queue
-                running_process->status = PROC_RUNNING;
+                running_process->status = PROC_IDLE;
                 running_process->last_run_time = get_clk();
                 log_process_state(running_process, "stopped", get_clk());
                 min_heap_insert(min_heap_queue, running_process);
@@ -175,7 +175,7 @@ void run_scheduler()
 
     // Must Be called before the clock is destroyed !!!
     generate_statistics();
-    destroy_clk(1);
+    scheduler_cleanup(0);
     exit(0);
 }
 
@@ -272,6 +272,9 @@ void scheduler_cleanup(int signum)
     cleanup_shared_memory(process_shm_id);
     process_shm_id = -1;
 
+    // Free space used by buddy system
+    destruct_buddy();
+
     // Cleanup memory resources if they still exist
     if (min_heap_queue)
     {
@@ -279,10 +282,10 @@ void scheduler_cleanup(int signum)
         while (min_heap_queue->size > 0)
         {
             PCB* pcb = min_heap_extract_min(min_heap_queue);
-            if (pcb)
+            if (pcb != NULL)
                 free(pcb);
         }
-        free(min_heap_queue);
+        destroy_min_heap(min_heap_queue);
         min_heap_queue = NULL;
     }
 
@@ -292,7 +295,7 @@ void scheduler_cleanup(int signum)
         while (!isQueueEmpty(rr_queue))
         {
             PCB* pcb = dequeue(rr_queue);
-            if (pcb)
+            if (pcb != NULL)
                 free(pcb);
         }
         free(rr_queue);
@@ -329,6 +332,7 @@ void scheduler_cleanup(int signum)
 
     // if (signum != 0)
     // {
+    destroy_clk(0);
     exit(0);
     // }
 }

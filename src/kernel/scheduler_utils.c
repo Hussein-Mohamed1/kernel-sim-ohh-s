@@ -266,7 +266,6 @@ void generate_statistics()
             free(wta_values[i]);
         }
     }
-
     free(wta_values);
 }
 

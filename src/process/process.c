@@ -9,11 +9,20 @@
 #include "clk.h"
 #include "colors.h"
 #include "../shared_mem/shared_mem.h"
+#include <sched.h>
+// Global variables for tracking process state
 int proc_shmid = -1;
+int remaining_runtime = 0;
+int last_start_time = 0;
+int is_running = 0;
 
 // Simplified process implementation
 void run_process(const int runtime, const pid_t process_generator_pid)
 {
+    signal(SIGTSTP, sigStpHandler);
+    signal(SIGINT, sigIntHandler);
+    signal(SIGCONT, sigContHandler);
+
     // Get shared memory ID
     proc_shmid = shmget(SHM_KEY, sizeof(process_control_t), 0666);
     if (proc_shmid == -1)
@@ -26,48 +35,62 @@ void run_process(const int runtime, const pid_t process_generator_pid)
     // Sync clock
     sync_clk();
 
-    int remaining = runtime;
+    // Initialize runtime tracking
+    remaining_runtime = runtime;
 
-    while (remaining > 0)
+    // Main busy wait loop - just wait until we're done
+    while (remaining_runtime > 0)
     {
-        // After receiving SIGCONT, read process control
+        // Wait for SIGCONT to start/resume execution
+        while (!is_running && remaining_runtime > 0)
+        {
+            // Idle wait
+            usleep(1000); // Small sleep to avoid CPU hogging
+        }
+
+        // Process is now running
+        if (remaining_runtime <= 0) break;
+
+        // Read shared memory to get current control info
         process_control_t ctrl = read_process_control(proc_shmid, getpid());
 
-        while (ctrl.pid != getpid() || ctrl.state != PROC_RUNNING)
+        if (ctrl.state == PROC_RUNNING)
         {
-            // re-read the control block when waking up
-            ctrl = read_process_control(proc_shmid, getpid());
-        }
+            // Block signals during time update to make it atomic
+            sigset_t block_set, old_set;
+            sigemptyset(&block_set);
+            sigaddset(&block_set, SIGTSTP);
+            sigprocmask(SIG_BLOCK, &block_set, &old_set);
 
-        // Determine how long to run
-        int time_to_run = (ctrl.time_slice < remaining) ? ctrl.time_slice : remaining;
-
-        if (DEBUG)
-            printf("[PROCESS] Process %d running for %d time units\n", getpid(), time_to_run);
-
-        // Simulate execution
-        int start_time = get_clk();
-        int elapsed = 0;
-
-        while (elapsed < time_to_run)
-        {
-            int now = get_clk();
-            if (now > start_time)
+            // Update time tracking
+            int current_time = get_clk();
+            if (current_time > last_start_time)
             {
-                elapsed += (now - start_time);
-                start_time = now;
+                int elapsed = current_time - last_start_time;
+                remaining_runtime -= elapsed;
+                last_start_time = current_time;
+
+                if (DEBUG)
+                    printf(ANSI_COLOR_YELLOW"[PROCESS] Process %d running, remaining: %d\n"ANSI_COLOR_RESET,
+                           getpid(), remaining_runtime);
             }
-            // usleep(100); // Short sleep to reduce CPU load
+
+            // Restore original signal mask
+            sigprocmask(SIG_SETMASK, &old_set, NULL);
+
+            // Allow any pending signals to be delivered before continuing
+            sched_yield();
+
+            // Check if we're still running (might have changed due to signal)
+            if (!is_running) continue;
+
+            // Check if we've completed execution
+            if (remaining_runtime <= 0)
+            {
+                update_process_state(proc_shmid, PROC_FINISHED);
+                break;
+            }
         }
-
-        // Update remaining time
-        remaining -= time_to_run;
-
-        // Signal completion of time slice
-        update_process_state(proc_shmid, (remaining > 0) ? PROC_IDLE : PROC_FINISHED);
-
-        if (DEBUG)
-            printf("[PROCESS] Process %d finished slice, remaining: %d\n", getpid(), remaining);
     }
 
     // Process is done, notify scheduler via SIGCHLD
@@ -84,20 +107,34 @@ void sigIntHandler(int signum)
 
 void sigStpHandler(int signum)
 {
-    // Update process state rather than status
+    // Update the remaining runtime based on elapsed time
+    int current_time = get_clk();
+    int elapsed = current_time - last_start_time;
+    remaining_runtime -= elapsed;
+
+    // Update process state
     update_process_state(proc_shmid, PROC_IDLE);
+    is_running = 0;
 
     if (DEBUG)
-        printf(ANSI_COLOR_YELLOW "[PROCESS] Process %d stopped.\n"ANSI_COLOR_WHITE, getpid());
+        printf(ANSI_COLOR_YELLOW "[PROCESS] Process %d stopped. Remaining runtime: %d\n"ANSI_COLOR_WHITE,
+               getpid(), remaining_runtime);
 
-    pause();
     signal(SIGTSTP, sigStpHandler);
+    pause();
 }
 
 void sigContHandler(int signum)
 {
+    // Update start time for runtime tracking
+    last_start_time = get_clk();
+    is_running = 1;
+
     if (DEBUG)
-        printf(ANSI_COLOR_YELLOW"[PROCESS] Process %d received SIGCONT. Resuming...\n"ANSI_COLOR_WHITE, getpid());
+        printf(
+            ANSI_COLOR_YELLOW"[PROCESS] Process %d received SIGCONT. Resuming with %d time units left\n"
+            ANSI_COLOR_WHITE,
+            getpid(), remaining_runtime);
 
     signal(SIGCONT, sigContHandler);
 }

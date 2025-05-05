@@ -14,6 +14,8 @@
 
 #include "scheduler.h"
 #include <bits/getopt_core.h>
+
+#include "shared_mem.h"
 #include "../process/process.h"
 int scheduler_type = -1; // Default invalid value
 char* process_file = "processes.txt"; // Default filename
@@ -136,7 +138,7 @@ int main(int argc, char* argv[])
                                 PROC_IDLE,
                                 process_parameters[i]->memsize, -1
                             };
-                            if (msgsnd(msgid, &proc_pcb, sizeof(PCB), 0) == -1)
+                            if (msgsnd(msgid, &proc_pcb, sizeof(PCB) - sizeof(long), 0) == -1)
                             {
                                 if (DEBUG)
                                     perror("Error sending message");
@@ -162,7 +164,19 @@ int main(int argc, char* argv[])
             }
 
             if (DEBUG)
-                printf(ANSI_COLOR_MAGENTA"[MAIN] All processes have been sent, exiting...\n"ANSI_COLOR_RESET);
+                printf(
+                    ANSI_COLOR_MAGENTA"[MAIN] All processes have been sent, waiting until all processes terminate\n"
+                    ANSI_COLOR_RESET);
+
+            // Wait for all children to exit before cleanup
+            int status;
+            pid_t pid;
+            while ((pid = waitpid(-1, &status, 0)) > 0) {
+                if (DEBUG)
+                    printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Child process %d exited with status %d\n"ANSI_COLOR_RESET,
+                           pid, WEXITSTATUS(status));
+            }
+
             process_generator_cleanup(0);
             exit(0);
         }
@@ -281,10 +295,15 @@ void child_process_handler(int signum)
 
 void process_generator_cleanup(int signum)
 {
-    signal(signum, process_generator_cleanup);
+    // Add static flag to prevent double execution
+    static int cleanup_in_progress = 0;
+
+    // Guard against recursive calls
+    if (cleanup_in_progress) return;
+    cleanup_in_progress = 1;
 
     // Free each ProcessMessage
-    for (int i = 0; i < process_count; i++)
+    for (int i = 0; i < MAX_PROCESSES; i++)
     {
         if (process_parameters[i] != NULL)
         {
@@ -294,7 +313,10 @@ void process_generator_cleanup(int signum)
     }
 
     if (process_parameters != NULL)
+    {
         free(process_parameters);
+        process_parameters = NULL; // Ensure this is set to NULL
+    }
 
     // Wait until message queue is empty before removing it
     if (msgid != -1)
@@ -338,12 +360,28 @@ void process_generator_cleanup(int signum)
         }
     }
 
-    destroy_clk(0);
+    // Wait for all child processes to exit
+    int status;
+    pid_t pid;
+
+    if (DEBUG)
+        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Waiting for all child processes to exit\n"ANSI_COLOR_RESET);
+
+    // Wait for any remaining children (blocking wait)
+    while ((pid = waitpid(-1, &status, 0)) > 0)
+    {
+        if (DEBUG)
+            printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Child process %d exited with status %d\n"ANSI_COLOR_RESET,
+                   pid, WEXITSTATUS(status));
+    }
+
+    if (DEBUG && pid == -1)
+        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] All child processes have exited\n"ANSI_COLOR_RESET);
+
+    destroy_clk(1);
     if (DEBUG)
         printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Resources cleaned up\n"ANSI_COLOR_RESET);
 
-    if (signum != 0)
-    {
-        exit(signum);
-    }
+
+    exit(0);
 }

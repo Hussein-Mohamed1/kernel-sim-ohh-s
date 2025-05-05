@@ -18,7 +18,7 @@ void init_buddy()
         printf("[BUDDY] Initializing buddy system...\n");
 
     FILE* log = fopen("memory.log", "w");
-    fprintf(log, "#At\ttime\tx\tallocated\ty\tbytes\tfor\tprocess\tz\tfrom\ti\tto\tj");
+    fprintf(log, "#At\ttime\tx\tallocated\ty\tbytes\tfor\tprocess\tz\tfrom\ti\tto\tj\n");
     fclose(log);
 
     memory = (Block**)malloc(sizeof(Block*) * MAX_BLOCKS);

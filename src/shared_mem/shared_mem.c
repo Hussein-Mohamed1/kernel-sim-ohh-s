@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "colors.h"
 #include "headers.h"
+#include "process.h"
 
 // Debug flag
 #ifndef DEBUG
@@ -20,6 +21,9 @@ int create_shared_memory(const key_t key)
 
     if (DEBUG)
         printf(ANSI_COLOR_BLUE"[SHARED_MEM] Shared memory created with ID: %d\n"ANSI_COLOR_RESET, shmid);
+
+    // Initialize the shared memory with zeros
+    write_process_control(shmid, 0, 0, PROC_IDLE);
     return shmid;
 }
 
