@@ -14,6 +14,7 @@
 
 #include "scheduler.h"
 #include <bits/getopt_core.h>
+#include "../process/process.h"
 int scheduler_type = -1; // Default invalid value
 char* process_file = "processes.txt"; // Default filename
 int quantum = 2; // Default quantum value
@@ -87,10 +88,6 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    /*
-     * Fork -> sends the processes at the appropriate time to the scheduler
-     * Parent -> runs the clk
-     */
     pid_t process_generator_pid = getpid();
     pid_t clk_pid = fork();
     // Child b
@@ -107,13 +104,10 @@ int main(int argc, char* argv[])
 
             int remaining_processes = process_count;
             int crt_clk = get_clk();
-            int old_clk = -1;
+            int old_clk = crt_clk;
             while (remaining_processes > 0)
             {
-                // 0 1 2 3 4
-                // Ensure that we move by increments of 1
-                while ((crt_clk = get_clk()) - old_clk == 0)
-                    usleep(1); // 1us sleep;
+                while ((crt_clk = get_clk()) == old_clk);
                 old_clk = crt_clk;
 
                 int messages_sent = 0;
@@ -123,48 +117,41 @@ int main(int argc, char* argv[])
                     if (process_parameters[i] != NULL && process_parameters[i]->arrival_time == crt_clk)
                     {
                         // Fork the process at its arrival time
-                        pid_t pid = fork();
-                        if (pid == 0)
+                        const pid_t process_pid = fork();
+                        if (process_pid == 0)
                         {
-                            char runtime_str[16];
-                            snprintf(runtime_str, sizeof(runtime_str), "%d", process_parameters[i]->runtime);
-                            char pid_str[16];
-                            snprintf(pid_str, sizeof(pid_str), "%d", process_generator_pid);
-                            // printf("[CHILD A] Sending Pid: %d\n", process_generator_pid);
-                            execl("./process", "process", runtime_str, pid_str, (char*)NULL);
-                            perror("execl failed");
-                            exit(1);
+                            // In child: run_process directly
+                            run_process(process_parameters[i]->runtime, process_generator_pid);
+                            exit(0);
                         }
-                        else if (pid > 0)
+                        else if (process_pid > 0)
                         {
-                            process_parameters[i]->pid = pid;
-                            // kill(pid, SIGTSTP); // Immediately stop the child process
+                            process_parameters[i]->pid = process_pid;
+                            // Send PCB to scheduler
+                            PCB proc_pcb = {
+                                1, process_parameters[i]->id, process_parameters[i]->pid,
+                                process_parameters[i]->arrival_time, process_parameters[i]->runtime,
+                                process_parameters[i]->runtime, process_parameters[i]->priority, 0, -1, -1, -1, -1, -1,
+                                -1,
+                                PROC_IDLE,
+                                process_parameters[i]->memsize, -1
+                            };
+                            if (msgsnd(msgid, &proc_pcb, sizeof(PCB), 0) == -1)
+                            {
+                                if (DEBUG)
+                                    perror("Error sending message");
+                            }
                         }
                         else
                         {
                             perror("fork failed");
                         }
 
-                        messages_sent++;
-                        PCB proc_pcb = {
-                            1, process_parameters[i]->id, process_parameters[i]->pid,
-                            process_parameters[i]->arrival_time, process_parameters[i]->runtime,
-                            process_parameters[i]->runtime, process_parameters[i]->priority, 0, -1, -1, -1, -1, -1,
-                            -1,
-                            READY,
-                            process_parameters[i]->memsize, -1
-                        };
-                        // Send the message
-                        if (msgsnd(msgid, &proc_pcb, sizeof(PCB), 0) == -1)
-                        {
-                            if (DEBUG)
-                                perror("Error sending message");
-                        }
-
                         // Cleanup
                         free(process_parameters[i]);
                         process_parameters[i] = NULL;
                         remaining_processes--;
+                        messages_sent++;
                     }
                     else if (process_parameters[i] != NULL && process_parameters[i]->arrival_time > crt_clk)
                         break;
@@ -337,7 +324,7 @@ void process_generator_cleanup(int signum)
                     ANSI_COLOR_BLUE"[PROC_GENERATOR] Waiting for queue to empty: %ld messages remaining\n"
                     ANSI_COLOR_RESET,
                     queue_info.msg_qnum);
-            usleep(100000); // Sleep for 100ms before checking again
+            sleep(1);
         }
 
         // remove the message queue if still exists

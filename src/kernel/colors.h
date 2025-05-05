@@ -21,6 +21,6 @@
 #define ANSI_COLOR_BOLD_CYAN "\x1b[1;36m"
 #define ANSI_COLOR_BOLD_WHITE "\x1b[1;37m"
 
-#define DEBUG 0
+#define DEBUG 1
 
 #endif  // COLORS_H

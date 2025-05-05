@@ -5,11 +5,17 @@
 
 #define MAX_BLOCKS (TOTAL_MEMORY / MIN_BLOCK)
 
+// Debug flag
+#ifndef DEBUG
+#define DEBUG 0
+#endif
+
 Block** memory;
 
 void init_buddy()
 {
-    printf("[BUDDY] Initializing buddy system...\n");
+    if (DEBUG)
+        printf("[BUDDY] Initializing buddy system...\n");
 
     FILE* log = fopen("memory.log", "w");
     fprintf(log, "#At\ttime\tx\tallocated\ty\tbytes\tfor\tprocess\tz\tfrom\ti\tto\tj");
@@ -48,16 +54,18 @@ void init_buddy()
     memory[0]->size = TOTAL_MEMORY;
     memory[0]->is_free = 1;
     memory[0]->pid = -1;
-    printf("[BUDDY] Buddy system initialized. TOTAL_MEMORY=%d, MIN_BLOCK=%d, MAX_BLOCKS=%d\n", TOTAL_MEMORY, MIN_BLOCK,
-           MAX_BLOCKS);
+    if (DEBUG)
+        printf("[BUDDY] Buddy system initialized. TOTAL_MEMORY=%d, MIN_BLOCK=%d, MAX_BLOCKS=%d\n", TOTAL_MEMORY, MIN_BLOCK, MAX_BLOCKS);
 }
 
 int allocate_memory(int pid, int size)
 {
-    printf("[BUDDY] Request to allocate %d bytes for pid %d\n", size, pid);
+    if (DEBUG)
+        printf("[BUDDY] Request to allocate %d bytes for pid %d\n", size, pid);
     if (size <= 0)
     {
-        printf("[BUDDY] Invalid allocation size: %d\n", size);
+        if (DEBUG)
+            printf("[BUDDY] Invalid allocation size: %d\n", size);
         return -1; // Invalid size
     }
 
@@ -68,47 +76,56 @@ int allocate_memory(int pid, int size)
         needed_size *= 2;
         if (needed_size > TOTAL_MEMORY)
         {
-            printf("[BUDDY] Requested size %d exceeds TOTAL_MEMORY %d\n", needed_size, TOTAL_MEMORY);
+            if (DEBUG)
+                printf("[BUDDY] Requested size %d exceeds TOTAL_MEMORY %d\n", needed_size, TOTAL_MEMORY);
             return -1; // Requested size too large
         }
     }
-    printf("[BUDDY] Needed block size: %d\n", needed_size);
+    if (DEBUG)
+        printf("[BUDDY] Needed block size: %d\n", needed_size);
 
     // Find a suitable block
     for (int i = 0; i < MAX_BLOCKS; i++)
     {
         if (memory[i]->is_free && memory[i]->size >= needed_size)
         {
-            printf("[BUDDY] Found free block at index %d with size %d\n", i, memory[i]->size);
+            if (DEBUG)
+                printf("[BUDDY] Found free block at index %d with size %d\n", i, memory[i]->size);
             // Split the block until it's the right size
             while (memory[i]->size > needed_size)
             {
                 if (split_block(i) == 0)
                 {
-                    printf("[BUDDY] Failed to split block at index %d\n", i);
+                    if (DEBUG)
+                        printf("[BUDDY] Failed to split block at index %d\n", i);
                     return -1; // Split failed
                 }
-                printf("[BUDDY] Split block at index %d, new size %d\n", i, memory[i]->size);
+                if (DEBUG)
+                    printf("[BUDDY] Split block at index %d, new size %d\n", i, memory[i]->size);
             }
 
             // Allocate the block
             memory[i]->is_free = 0;
             memory[i]->pid = pid;
-            printf("[BUDDY] Allocated block at index %d (address %d) for pid %d\n", i, i * MIN_BLOCK, pid);
+            if (DEBUG)
+                printf("[BUDDY] Allocated block at index %d (address %d) for pid %d\n", i, i * MIN_BLOCK, pid);
             return i * MIN_BLOCK; // Return the memory address
         }
     }
 
-    printf("[BUDDY] No suitable block found for pid %d, size %d\n", pid, size);
+    if (DEBUG)
+        printf("[BUDDY] No suitable block found for pid %d, size %d\n", pid, size);
     return -1; // No suitable block found
 }
 
 int split_block(int index)
 {
-    printf("[BUDDY] Splitting block at index %d\n", index);
+    if (DEBUG)
+        printf("[BUDDY] Splitting block at index %d\n", index);
     if (index < 0 || index >= MAX_BLOCKS || memory[index]->size == MIN_BLOCK)
     {
-        printf("[BUDDY] Cannot split block at index %d (size: %d)\n", index, memory[index]->size);
+        if (DEBUG)
+            printf("[BUDDY] Cannot split block at index %d (size: %d)\n", index, memory[index]->size);
         return 0; // Can't split this block
     }
 
@@ -117,7 +134,8 @@ int split_block(int index)
 
     if (buddy_index == -1)
     {
-        printf("[BUDDY] No free index found for buddy block\n");
+        if (DEBUG)
+            printf("[BUDDY] No free index found for buddy block\n");
         return 0; // No free blocks available
     }
 
@@ -134,7 +152,8 @@ int split_block(int index)
     memory[buddy_index]->size = half_size;
     memory[buddy_index]->is_free = 1;
     memory[buddy_index]->pid = -1;
-    printf("[BUDDY] Created buddy block at index %d with size %d\n", buddy_index, half_size);
+    if (DEBUG)
+        printf("[BUDDY] Created buddy block at index %d with size %d\n", buddy_index, half_size);
 
     // Update the original block
     memory[index]->size = half_size;
@@ -148,37 +167,44 @@ int find_free_index()
     {
         if (memory[i]->size == 0)
         {
-            printf("[BUDDY] Found free index at %d\n", i);
+            if (DEBUG)
+                printf("[BUDDY] Found free index at %d\n", i);
             return i;
         }
     }
-    printf("[BUDDY] No free index found\n");
+    if (DEBUG)
+        printf("[BUDDY] No free index found\n");
     return -1; // No free blocks
 }
 
 void free_memory(int pid)
 {
-    printf("[BUDDY] Request to free memory for pid %d\n", pid);
+    if (DEBUG)
+        printf("[BUDDY] Request to free memory for pid %d\n", pid);
     for (int i = 0; i < MAX_BLOCKS; i++)
     {
         if (memory[i]->pid == pid)
         {
-            printf("[BUDDY] Found block at index %d for pid %d, freeing...\n", i, pid);
+            if (DEBUG)
+                printf("[BUDDY] Found block at index %d for pid %d, freeing...\n", i, pid);
             memory[i]->is_free = 1;
             memory[i]->pid = -1;
             merge_buddies(i);
             return;
         }
     }
-    printf("[BUDDY] No block found for pid %d\n", pid);
+    if (DEBUG)
+        printf("[BUDDY] No block found for pid %d\n", pid);
 }
 
 void merge_buddies(int index)
 {
-    printf("[BUDDY] Attempting to merge buddies for index %d\n", index);
+    if (DEBUG)
+        printf("[BUDDY] Attempting to merge buddies for index %d\n", index);
     if (index < 0 || index >= MAX_BLOCKS)
     {
-        printf("[BUDDY] Invalid index %d for merging\n", index);
+        if (DEBUG)
+            printf("[BUDDY] Invalid index %d for merging\n", index);
         return; // Invalid index
     }
 
@@ -187,7 +213,8 @@ void merge_buddies(int index)
         int size = memory[index]->size;
         if (size == TOTAL_MEMORY)
         {
-            printf("[BUDDY] Block at index %d is already TOTAL_MEMORY, cannot merge further\n", index);
+            if (DEBUG)
+                printf("[BUDDY] Block at index %d is already TOTAL_MEMORY, cannot merge further\n", index);
             break; // Can't merge anymore
         }
 
@@ -204,7 +231,8 @@ void merge_buddies(int index)
         // Check if buddy can be merged
         if (memory[buddy_index]->is_free && memory[buddy_index]->size == size)
         {
-            printf("[BUDDY] Merging block %d and buddy %d (size %d)\n", index, buddy_index, size);
+            if (DEBUG)
+                printf("[BUDDY] Merging block %d and buddy %d (size %d)\n", index, buddy_index, size);
             // Choose the lower index as the new block
             if (buddy_index < index)
             {
@@ -221,7 +249,8 @@ void merge_buddies(int index)
         }
         else
         {
-            printf("[BUDDY] Cannot merge block %d with buddy %d\n", index, buddy_index);
+            if (DEBUG)
+                printf("[BUDDY] Cannot merge block %d with buddy %d\n", index, buddy_index);
             break; // Can't merge anymore
         }
     }
@@ -229,10 +258,12 @@ void merge_buddies(int index)
 
 void destruct_buddy()
 {
-    printf("[BUDDY] Deallocating buddy system memory...\n");
+    if (DEBUG)
+        printf("[BUDDY] Deallocating buddy system memory...\n");
     if (memory == NULL)
     {
-        printf("[BUDDY] Memory already deallocated.\n");
+        if (DEBUG)
+            printf("[BUDDY] Memory already deallocated.\n");
         return; // Already deallocated
     }
 
@@ -248,6 +279,7 @@ void destruct_buddy()
     free(memory);
     memory = NULL;
 
-    printf("[BUDDY] Buddy system memory deallocated.\n");
+    if (DEBUG)
+        printf("[BUDDY] Buddy system memory deallocated.\n");
     fflush(stdout);
 }

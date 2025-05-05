@@ -21,12 +21,6 @@ typedef struct
 
 #define MAX_INPUT_PROCESSES 100
 
-
-// Constants
-#define READY 0
-#define RUNNING 1
-#define TERMINATED 2 // I Think using this is wrong
-
 // Extra States (IDK if we'll use them)
 #define BLOCKED 2
 #define PAUSED 3
@@ -39,3 +33,7 @@ typedef struct
 // Message types
 #define PROCESS_ARRIVED 1
 #define PROCESS_FINISHED 2
+
+#define PROC_IDLE 0      // Process is waiting for instructions
+#define PROC_RUNNING 1   // Process is running
+#define PROC_FINISHED 2  // Process has finished its time slice

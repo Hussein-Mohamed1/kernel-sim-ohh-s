@@ -9,9 +9,9 @@
 #include "scheduler.h"
 #include "headers.h"
 #include "min_heap.h"
-#include "process_generator.h"
 #include "colors.h"
-#include "shared_mem.h"
+#include "../shared_mem/shared_mem.h"
+
 extern int total_busy_time;
 extern int scheduler_type;
 extern finishedProcessInfo** finished_process_info;
@@ -50,7 +50,7 @@ PCB* hpf(min_heap_t* ready_queue, int current_time)
     if (!min_heap_is_empty(ready_queue))
     {
         PCB* next_process = min_heap_extract_min(ready_queue);
-        next_process->status = RUNNING;
+        next_process->status = PROC_RUNNING;
         next_process->waiting_time = current_time - next_process->arrival_time;
         // assuming that any process is initially having start time -1
         if (next_process->start_time == -1)
@@ -58,7 +58,6 @@ PCB* hpf(min_heap_t* ready_queue, int current_time)
             next_process->start_time = current_time;
         }
         log_process_state(next_process, "started", current_time);
-        kill(next_process->pid,SIGCONT);
         return next_process;
     }
     return NULL;
@@ -70,7 +69,7 @@ PCB* srtn(min_heap_t* ready_queue)
     if (!min_heap_is_empty(ready_queue))
     {
         PCB* next_process = min_heap_extract_min(ready_queue);
-        next_process->status = RUNNING;
+        next_process->status = PROC_RUNNING;
         if (next_process->last_run_time == -1)
         {
             next_process->waiting_time = current_time - next_process->arrival_time;
@@ -98,7 +97,7 @@ PCB* rr(Queue* ready_queue, int current_time)
     if (!isQueueEmpty(ready_queue))
     {
         PCB* next_process = dequeue(ready_queue);
-        next_process->status = RUNNING;
+        next_process->status = PROC_RUNNING;
         next_process->waiting_time = (current_time - next_process->arrival_time) - (next_process->runtime - next_process
             ->remaining_time);
         if (next_process->start_time == -1)
@@ -123,14 +122,15 @@ void log_process_state(PCB* process, char* state, int time)
     if (strcmp(state, "started") == 0)
     {
         fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d TA %d WTA %.2f\n",
-            time, process->pid, state, process->arrival_time, process->runtime,
-            process->remaining_time, process->waiting_time,
-            (time - process->arrival_time), /* Turnaround time */
-            (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0); /* Weighted turnaround time */
+                time, process->pid, state, process->arrival_time, process->runtime,
+                process->remaining_time, process->waiting_time,
+                (time - process->arrival_time), /* Turnaround time */
+                (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0);
+        /* Weighted turnaround time */
 
-        if(DEBUG)
-        printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d started at time %d\n"ANSI_COLOR_RESET,
-               process->pid, time);
+        if (DEBUG)
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d started at time %d\n"ANSI_COLOR_RESET,
+                   process->pid, time);
     }
     else if (strcmp(state, "finished") == 0)
     {
@@ -138,11 +138,12 @@ void log_process_state(PCB* process, char* state, int time)
                 time, process->pid, state, process->arrival_time, process->runtime,
                 0, process->waiting_time,
                 (time - process->arrival_time), // Turnaround time
-                (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0); /* Weighted turnaround time */
+                (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0);
+        /* Weighted turnaround time */
 
-        if(DEBUG)
-        printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d finished at time %d\n"ANSI_COLOR_RESET,
-               process->pid, time);
+        if (DEBUG)
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d finished at time %d\n"ANSI_COLOR_RESET,
+                   process->pid, time);
     }
     else if (strcmp(state, "resumed") == 0)
     {
@@ -150,9 +151,9 @@ void log_process_state(PCB* process, char* state, int time)
                 time, process->pid, state, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
 
-        if(DEBUG)
-        printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d resumed at time %d\n"ANSI_COLOR_RESET,
-               process->pid, time);
+        if (DEBUG)
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d resumed at time %d\n"ANSI_COLOR_RESET,
+                   process->pid, time);
     }
     else if (strcmp(state, "preempted") == 0 || strcmp(state, "blocked") == 0)
     {
@@ -160,9 +161,9 @@ void log_process_state(PCB* process, char* state, int time)
                 time, process->pid, state, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
 
-        if(DEBUG)
-        printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d %s at time %d\n"ANSI_COLOR_RESET,
-               process->pid, state, time);
+        if (DEBUG)
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d %s at time %d\n"ANSI_COLOR_RESET,
+                   process->pid, state, time);
     }
     else
     {
@@ -268,12 +269,17 @@ void generate_statistics()
 
     free(wta_values);
 }
-void log_memory_op(int time, int pid, int size, int start, int end, int is_alloc) {
-    FILE *log = fopen("memory.log", "a");
-    if (is_alloc) {
+
+void log_memory_op(int time, int pid, int size, int start, int end, int is_alloc)
+{
+    FILE* log = fopen("memory.log", "a");
+    if (is_alloc)
+    {
         fprintf(log, "At time %d allocated %d bytes for process %d from %d to %d\n",
                 time, size, pid, start, end);
-    } else {
+    }
+    else
+    {
         fprintf(log, "At time %d freed %d bytes from process %d from %d to %d\n",
                 time, size, pid, start, end);
     }
