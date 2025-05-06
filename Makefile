@@ -24,6 +24,24 @@ PROCESS_OBJS := $(PROCESS_SRCS:%=$(BUILD_DIR)/%.o) $(SHARED_MEM_OBJ)
 DATA_STRUCTURES_OBJS := $(DATA_STRUCTURES_SRCS:%=$(BUILD_DIR)/%.o)
 CLK_OBJS := $(CLK_SRCS:%=$(BUILD_DIR)/%.o)
 
+# Explicitly list all object files for kernel and process
+KERNEL_OBJS = \
+	$(BUILD_DIR)/src/kernel/buddy.c.o \
+	$(BUILD_DIR)/src/kernel/memory_manager.c.o \
+	$(BUILD_DIR)/src/kernel/process_generator.c.o \
+	$(BUILD_DIR)/src/kernel/scheduler.c.o \
+	$(BUILD_DIR)/src/kernel/scheduler_globals.c.o \
+	$(BUILD_DIR)/src/kernel/scheduler_utils.c.o \
+	$(BUILD_DIR)/src/shared_mem/shared_mem.c.o \
+	$(BUILD_DIR)/src/kernel/clk.c.o \
+	$(BUILD_DIR)/src/data_structures/binary_tree.c.o \
+	$(BUILD_DIR)/src/data_structures/deque.c.o \
+	$(BUILD_DIR)/src/data_structures/linked_list.c.o \
+	$(BUILD_DIR)/src/data_structures/min_heap.c.o \
+	$(BUILD_DIR)/src/data_structures/queue.c.o \
+	$(BUILD_DIR)/src/process/process.c.o \
+
+PROCESS_OBJS = 
 # All dependencies
 DEPS := $(KERNEL_ONLY_OBJS:.o=.d) $(PROCESS_OBJS:.o=.d) $(DATA_STRUCTURES_OBJS:.o=.d) $(CLK_OBJS:.o=.d)
 
@@ -36,19 +54,19 @@ CPPFLAGS := $(INC_FLAGS) -MMD -MP
 #LDFLAGS := -lreadline
 
 # Default target builds everything
-all: kernel process
+all: kernel
 
 # Kernel executable
-kernel: $(KERNEL_ONLY_OBJS) $(CLK_OBJS) $(DATA_STRUCTURES_OBJS)
+kernel: $(KERNEL_OBJS)
 	@echo "Building kernel..."
 	mkdir -p $(BUILD_DIR)
-	$(CXX) $(KERNEL_ONLY_OBJS) $(CLK_OBJS) $(DATA_STRUCTURES_OBJS) -o $(KERNEL_EXEC) $(LDFLAGS)
+	$(CXX) $(KERNEL_OBJS) -o $(KERNEL_EXEC) $(LDFLAGS)
 
 # Process executable
-process: $(PROCESS_OBJS) $(CLK_OBJS) $(DATA_STRUCTURES_OBJS)
+process: $(PROCESS_OBJS)
 	@echo "Building process component..."
 	mkdir -p $(BUILD_DIR)
-	$(CC) $(PROCESS_OBJS) $(CLK_OBJS) $(DATA_STRUCTURES_OBJS) -o $(PROCESS_EXEC) $(LDFLAGS)
+	$(CC) $(PROCESS_OBJS) -o $(PROCESS_EXEC) $(LDFLAGS)
 
 # Build step for C source
 $(BUILD_DIR)/%.c.o: %.c

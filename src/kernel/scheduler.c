@@ -17,7 +17,6 @@
 #include "headers.h"
 #include "colors.h"
 
-#include "buddy.h"
 extern int total_busy_time;
 extern finishedProcessInfo** finished_process_info;
 // Use pointers for both possible queue types
@@ -269,23 +268,7 @@ int receive_processes(void)
         }
         *new_pcb = received_pcb; // shallow copy, doesnt matter
 
-        // Allocate memory for the new process (Phase 2)
-        new_pcb->memory_start = allocate_memory(new_pcb->pid, new_pcb->memsize);
-        if (new_pcb->memory_start == -1)
-        {
-            fprintf(stderr, "PID %d: Memory allocation failed (size=%d)\n",
-                    new_pcb->pid, new_pcb->memsize);
-            free(new_pcb);
-            return -1;
-        }
-
-        // Log allocation (Phase 2)
-        log_memory_op(
-            get_clk(), new_pcb->pid, new_pcb->memsize,
-            new_pcb->memory_start,
-            new_pcb->memory_start + new_pcb->memsize - 1,
-            1 // 1 = allocation
-        );
+        
 
         if (scheduler_type == HPF || scheduler_type == SRTN)
             min_heap_insert(min_heap_queue, new_pcb);
@@ -321,8 +304,6 @@ void scheduler_cleanup(int signum)
     cleanup_shared_memory(process_shm_id);
     process_shm_id = -1;
 
-    // Free space used by buddy system
-    destruct_buddy();
 
     // Cleanup memory resources if they still exist
     if (min_heap_queue)
@@ -404,14 +385,6 @@ void child_cleanup()
         running_process->remaining_time = 0;
         log_process_state(running_process, "finished", current_time);
 
-        // Free the memory allocated for the process (phase 2)
-        log_memory_op(
-            get_clk(), running_process->pid, running_process->memsize,
-            running_process->memory_start,
-            running_process->memory_start + running_process->memsize - 1,
-            0 // 0 = free operation
-        );
-        free_memory(running_process->pid);
 
 
         if (finished_processes_count < MAX_INPUT_PROCESSES)
@@ -520,8 +493,6 @@ int init_scheduler()
     for (int i = 0; i < MAX_INPUT_PROCESSES; i++)
         finished_process_info[i] = NULL;
 
-
-    init_buddy();
 
     if (DEBUG)
         printf(ANSI_COLOR_GREEN"[SCHEDULER] Scheduler initialized successfully at time %d\n"ANSI_COLOR_RESET,

@@ -169,6 +169,11 @@ int main(int argc, char* argv[])
     // Get List of processes
     process_parameters = read_process_file(process_file, &process_count);
 
+     // Initialize memory manager
+     if (!mm_init(MEMORY_SIZE)) {
+        fprintf(stderr, "Failed to initialize memory manager\n");
+        exit(EXIT_FAILURE);
+    }
     // Init IPC
     // Any file name
     key = ftok("process_generator", 65);
