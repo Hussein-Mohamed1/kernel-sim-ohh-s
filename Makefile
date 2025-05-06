@@ -13,7 +13,7 @@ SHARED_MEM_SRC := $(SHARED_MEM_DIR)/shared_mem.c
 SHARED_MEM_OBJ := $(BUILD_DIR)/$(SHARED_MEM_DIR)/shared_mem.c.o
 
 # Find source files for each component
-KERNEL_ONLY_SRCS := $(shell find $(KERNEL_DIR) -name '*.cpp' -or -name '*.c' -not -name 'clk.c' -or -name '*.s')
+KERNEL_ONLY_SRCS := $(shell find $(KERNEL_DIR) \( -name '*.cpp' -o -name '*.c' -o -name '*.s' \) ! -name 'clk.c')
 PROCESS_SRCS := $(shell find $(PROCESS_DIR) -name '*.cpp' -or -name '*.c' -or -name '*.s')
 DATA_STRUCTURES_SRCS := $(shell find $(DATA_STRUCTURES_DIR) -name '*.cpp' -or -name '*.c' -or -name '*.s')
 CLK_SRCS := $(KERNEL_DIR)/clk.c

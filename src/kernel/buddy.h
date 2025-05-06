@@ -1,18 +1,15 @@
-#define TOTAL_MEMORY 1024  
-#define MIN_BLOCK 32
+#pragma once
 
-typedef struct {
-    int size;
-    int is_free;
-    int pid;
-} Block;
+#include <stdio.h>
+#include <stdlib.h>
 
+struct buddy;
 
+struct buddy *buddy_new(unsigned num_of_fragments);
+int buddy_alloc(struct buddy *self, size_t size);
+void buddy_free(struct buddy *self, int offset);
+void buddy_dump(struct buddy *self);
+void buddy_destroy(struct buddy *self);
 
-void init_buddy();
-int allocate_memory(int pid, int size);
-int split_block(int index);
-int find_free_index();
-void free_memory(int pid);
-void merge_buddies(int index);
-void destruct_buddy();
+// Add a new function to get the buddy system's total memory size
+size_t buddy_get_size(struct buddy *self);

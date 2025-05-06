@@ -11,7 +11,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include "colors.h"
-
+#include "memory_manager.h"
 #include "scheduler.h"
 #include <bits/getopt_core.h>
 
@@ -23,6 +23,66 @@ int quantum = 2; // Default quantum value
 processParameters** process_parameters;
 int msgid;
 key_t key;
+
+
+// Memory size for the buddy system (adjust as needed)
+#define MEMORY_SIZE 1024
+
+// Function to check and process waiting list
+void process_waiting_list() {
+    while (mm_has_waiting_processes()) {
+        processParameters* proc = mm_get_next_allocatable_process();
+        if (!proc) break;
+        if (DEBUG) printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] Processing waiting process ID %d\n" ANSI_COLOR_RESET, proc->id);
+        
+        // Attempt to allocate memory first - with a temporary ID
+        int allocation = mm_allocate(proc->id, proc->memsize);
+        if (allocation == -1) {
+            // If allocation failed, put back in the waiting list
+            if (DEBUG) printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] Still can't allocate memory for process ID %d, keeping in waiting list\n" ANSI_COLOR_RESET, proc->id);
+            mm_add_to_waiting_list(proc);
+            free(proc);
+            break; // Break from the loop since memory is still constrained
+        }
+        
+        // Memory allocation succeeded, now fork
+        pid_t pid = fork();
+        if (pid == 0) {
+            char runtime_str[16];
+            snprintf(runtime_str, sizeof(runtime_str), "%d", proc->runtime);
+            char pid_str[16];
+            snprintf(pid_str, sizeof(pid_str), "%d", getpid());
+            execl("./process", "process", runtime_str, pid_str, (char*)NULL);
+            perror("execl failed");
+            exit(1);
+        } else if (pid > 0) {
+            proc->pid = pid;
+            // Establish bidirectional mapping between PID and process ID
+            mm_map_pid_to_id(pid, proc->id);
+            
+            if (allocation != -1) {
+                if (DEBUG)
+                    printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] Started waiting process ID %d with PID %d\n" ANSI_COLOR_RESET, proc->id, pid);
+                PCB proc_pcb = {
+                    1, proc->id, pid,
+                    proc->arrival_time, proc->runtime,
+                    proc->runtime, proc->priority, 0, -1, -1, -1, -1, -1,
+                    -1,
+                    PROC_IDLE,
+                };
+                if (msgsnd(msgid, &proc_pcb, sizeof(PCB), 0) == -1) {
+                    if (DEBUG)
+                        perror("Error sending message");
+                }
+            }
+        } else {
+            perror("fork failed");
+            // Free the allocation since forking failed
+            mm_free_by_id(proc->id);
+        }
+        free(proc);
+    }
+}
 
 int main(int argc, char* argv[])
 {
@@ -124,16 +184,31 @@ int main(int argc, char* argv[])
     int remaining_processes = process_count;
     int crt_clk = get_clk();
     int old_clk = crt_clk;
-    while (remaining_processes > 0)
+    while (remaining_processes > 0 || mm_has_waiting_processes())
     {
         while ((crt_clk = get_clk()) == old_clk);
         old_clk = crt_clk;
 
+        // First, try to process waiting list
+        process_waiting_list();
+
         int messages_sent = 0;
+        
         for (int i = 0; i < process_count; i++)
         {
             if (process_parameters[i] != NULL && process_parameters[i]->arrival_time == crt_clk)
             {
+                // Try to allocate memory first - with process ID as identifier
+                int allocation = mm_allocate(process_parameters[i]->id, process_parameters[i]->memsize);
+                        
+                if (allocation == -1) {
+                    // Memory allocation failed, add to waiting list
+                    if (DEBUG)
+                        printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] Cannot allocate memory for process ID %d, adding to waiting list\n" ANSI_COLOR_RESET, process_parameters[i]->id);
+                    mm_add_to_waiting_list(process_parameters[i]);
+                    continue;
+                }
+
                 // Fork the process at its arrival time
                 const pid_t process_pid = fork();
                 if (process_pid == 0)
@@ -144,6 +219,9 @@ int main(int argc, char* argv[])
                 else if (process_pid > 0)
                 {
                     process_parameters[i]->pid = process_pid;
+
+                    // Add mapping between PID and process ID
+                    mm_map_pid_to_id(process_pid, process_parameters[i]->id);
                     PCB proc_pcb = {
                         1, process_parameters[i]->id, process_parameters[i]->pid,
                         process_parameters[i]->arrival_time, process_parameters[i]->runtime,
@@ -161,6 +239,9 @@ int main(int argc, char* argv[])
                 else
                 {
                     perror("fork failed");
+
+                    // Free the allocation since forking failed
+                    mm_free_by_id(process_parameters[i]->id);
                 }
 
                 free(process_parameters[i]);
@@ -172,9 +253,17 @@ int main(int argc, char* argv[])
                 break;
         }
 
-        if (messages_sent > 0 && DEBUG)
-            printf(ANSI_COLOR_MAGENTA"[MAIN] Sent %d message(s) to scheduler\n"ANSI_COLOR_RESET, messages_sent);
-    }
+        if (messages_sent > 0) {
+            process_waiting_list();
+            if(DEBUG)
+                printf(ANSI_COLOR_MAGENTA"[MAIN] Sent %d message(s) to scheduler\n"ANSI_COLOR_RESET, messages_sent);
+            }
+            
+            if (remaining_processes == 0 && mm_has_waiting_processes()) {
+                printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] All processes arrived, %d waiting for memory\n"
+                    ANSI_COLOR_RESET, mm_get_waiting_count());
+            }
+}
 
     if (DEBUG)
         printf(
@@ -201,7 +290,7 @@ processParameters** read_process_file(const char* filename, int* count)
     }
 
     // Count lines to allocate memory
-    char line[256];
+    char line[100];
     int line_count = 0;
 
     while (fgets(line, sizeof(line), file))
@@ -241,21 +330,37 @@ processParameters** read_process_file(const char* filename, int* count)
         }
 
         // Parse process information
-        int id, arrival, runtime, priority, memsize;
-        if (sscanf(line, "%d\t%d\t%d\t%d\t%d", &id, &arrival, &runtime, &priority, &memsize) == 5)
-        {
-            // Allocate memory for each ProcessMessage
-            process_messages[index] = (processParameters*)malloc(sizeof(processParameters));
-
-            // Set values
-            process_messages[index]->mtype = 1; // Default message type
-            process_messages[index]->id = id;
-            process_messages[index]->arrival_time = arrival;
-            process_messages[index]->runtime = runtime;
-            process_messages[index]->priority = priority;
-            process_messages[index]->memsize = memsize;
-            index++;
+        int id, arrival, runtime, priority, memsize = 0;
+        int fields_read;
+        
+        // Try to parse with memory size field first (Phase 2 format)
+        fields_read = sscanf(line, "%d\t%d\t%d\t%d\t%d", &id, &arrival, &runtime, &priority, &memsize);
+        
+        // If we couldn't read 5 fields, try the Phase 1 format (without memory size)
+        if (fields_read < 5) {
+            fields_read = sscanf(line, "%d\t%d\t%d\t%d", &id, &arrival, &runtime, &priority);
+            
+            // If Phase 1 format worked, use runtime as memsize (for backward compatibility)
+            if (fields_read == 4) {
+                memsize = runtime;
+            } else {
+                // Invalid format
+                continue;
+            }
         }
+
+        // Allocate memory for each ProcessMessage
+        process_messages[index] = (processParameters*)malloc(sizeof(processParameters));
+
+        // Set values
+        process_messages[index]->mtype = 1; // Default message type
+        process_messages[index]->id = id;
+        process_messages[index]->arrival_time = arrival;
+        process_messages[index]->runtime = runtime;
+        process_messages[index]->priority = priority;
+        process_messages[index]->memsize = memsize;  // Store memory size
+
+        index++;
     }
 
     fclose(file);
@@ -265,7 +370,6 @@ processParameters** read_process_file(const char* filename, int* count)
 
     return process_messages;
 }
-
 void child_process_handler(int signum)
 {
     int status;
@@ -278,6 +382,20 @@ void child_process_handler(int signum)
             printf(
                 ANSI_COLOR_BLUE"[PROC_GENERATOR] Acknowledged that child process PID: %d has died.\n"ANSI_COLOR_RESET,
                 pid);
+                int offset = -1;
+                size_t size = 0;
+        if (mm_check_pid_allocation(pid, &offset, &size)) {
+            // Free memory when process terminates
+            mm_free(pid);
+            
+            if (DEBUG)
+                printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Released memory for terminated process PID: %d (offset: %d, size: %zu)\n"ANSI_COLOR_RESET,
+                    pid, offset, size);
+        } else {
+            if (DEBUG)
+                printf(ANSI_COLOR_YELLOW"[PROC_GENERATOR] Process PID: %d had no memory allocated or was already freed\n"ANSI_COLOR_RESET,
+                    pid);
+        }
     }
 }
 
@@ -356,5 +474,6 @@ void process_generator_cleanup(int scheduler_pid)
     if (DEBUG)
         printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Resources cleaned up\n"ANSI_COLOR_RESET);
 
+    mm_destroy();
     signal(SIGINT,NULL);
 }
