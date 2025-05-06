@@ -225,23 +225,14 @@ void generate_statistics()
     float total_wait = 0;
     float total_wta = 0;
     float total_ta = 0;
+    int total_runtime = 0;
 
     int total_execution_time = get_clk(); // Total simulation time
-    
-    // Ensure total_busy_time is properly initialized and has valid data
-    if (total_busy_time <= 0) {
-        // If total_busy_time is not tracked correctly, recalculate based on process execution times
-        for (int i = 0; i < finished_processes_count; i++) {
-            if (finished_process_info[i] != NULL) {
-                total_busy_time += finished_process_info[i]->ta - finished_process_info[i]->waiting_time;
-            }
-        }
-        
-        if (DEBUG)
-            printf(ANSI_COLOR_GREEN"[SCHEDULER] Recalculated total_busy_time = %d\n"ANSI_COLOR_RESET, 
-                   total_busy_time);
-    }
 
+    // Fix for CPU utilization calculation - recalculate total_busy_time
+    // Reset total_busy_time to make sure we get an accurate calculation
+    total_busy_time = 0;
+    
     // Loop through all finished processes
     for (int i = 0; i < finished_processes_count; i++)
     {
@@ -255,6 +246,11 @@ void generate_statistics()
         total_wait += finished_process_info[i]->waiting_time;
         total_ta += finished_process_info[i]->ta;
         total_wta += finished_process_info[i]->wta;
+        
+        // Calculate actual execution time (TA - waiting time)
+        int process_execution_time = finished_process_info[i]->ta - finished_process_info[i]->waiting_time;
+        total_busy_time += process_execution_time;
+        total_runtime += process_execution_time;
 
         // Store WTA values (not waiting times) for standard deviation calculation
         wta_values[i] = (float*)malloc(sizeof(float));
@@ -282,10 +278,16 @@ void generate_statistics()
     }
     float std_wta = sqrt(sum_squared_diff / finished_processes_count);
 
-    // Calculate CPU utilization ensuring we don't divide by zero
+    // Ensure CPU utilization calculation is correct and avoids division by zero
     float cpu_utilization = 0.0;
     if (total_execution_time > 0) {
-        cpu_utilization = ((float)(total_busy_time) / total_execution_time) * 100.0;
+        cpu_utilization = ((float)total_busy_time / total_execution_time) * 100.0;
+    }
+
+    // Log the exact values used for calculation in case of issues
+    if (DEBUG) {
+        printf(ANSI_COLOR_GREEN"[SCHEDULER] CPU utilization calculation: %d/%d * 100 = %.2f%%\n"ANSI_COLOR_RESET,
+               total_busy_time, total_execution_time, cpu_utilization);
     }
 
     // Write to performance file
