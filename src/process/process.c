@@ -58,27 +58,42 @@ void run_process(const int runtime, const pid_t process_generator_pid)
             sigaddset(&block_set, SIGTSTP);
             sigprocmask(SIG_BLOCK, &block_set, &old_set);
 
-            // Update time tracking
+            // --- RR: Only run for the given time_slice ---
             int current_time = get_clk();
-            if (current_time > last_start_time)
-            {
-                int elapsed = current_time - last_start_time;
-                remaining_runtime -= elapsed;
-                last_start_time = current_time;
+            int run_for = ctrl.time_slice;
+            int ran = 0;
+            last_start_time = current_time;
 
-                if (DEBUG)
-                    printf(ANSI_COLOR_YELLOW"[PROCESS] Process %d running, remaining: %d\n"ANSI_COLOR_RESET,
-                           getpid(), remaining_runtime);
+            while (ran < run_for && remaining_runtime > 0 && is_running && ctrl.state == PROC_RUNNING)
+            {
+                // Wait for the clock to tick
+                int now = get_clk();
+                if (now > current_time)
+                {
+                    remaining_runtime--;
+                    ran++;
+                    current_time = now;
+
+                    if (DEBUG)
+                        printf(ANSI_COLOR_YELLOW"[PROCESS] Process %d running, remaining: %d, ran: %d/%d\n"ANSI_COLOR_RESET,
+                               getpid(), remaining_runtime, ran, run_for);
+                }
+                // Check for preemption or stop
+                ctrl = read_process_control(proc_shmid, getpid());
+                if (!is_running || ctrl.state != PROC_RUNNING)
+                    break;
             }
 
             // Restore original signal mask
             sigprocmask(SIG_SETMASK, &old_set, NULL);
 
-            // Allow any pending signals to be delivered before continuing
-            sched_yield();
-
-            // Check if we're still running (might have changed due to signal)
-            if (!is_running) continue;
+            // If time slice expired or preempted, update state
+            if (remaining_runtime > 0 && ran >= run_for)
+            {
+                update_process_state(proc_shmid, PROC_IDLE);
+                is_running = 0;
+                continue;
+            }
 
             // Check if we've completed execution
             if (remaining_runtime <= 0)
