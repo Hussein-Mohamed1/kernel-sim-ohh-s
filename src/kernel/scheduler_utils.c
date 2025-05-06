@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <bits/signum-arch.h>
 #include "clk.h"
 #include "pcb.h"
@@ -121,12 +122,10 @@ void log_process_state(PCB* process, char* state, int time)
 {
     if (strcmp(state, "started") == 0)
     {
-        fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d TA %d WTA %.2f\n",
-                time, process->id, state, process->arrival_time, process->runtime,
-                process->remaining_time, process->waiting_time,
-                (time - process->arrival_time), /* Turnaround time */
-                (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0);
-        /* Weighted turnaround time */
+        fprintf(log_file, "At time %d process %d started arr %d total %d remain %d wait %d\n",
+                time, process->id, process->arrival_time, process->runtime,
+                process->remaining_time, process->waiting_time);
+        fflush(log_file);
 
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d started at time %d\n"ANSI_COLOR_RESET,
@@ -134,12 +133,12 @@ void log_process_state(PCB* process, char* state, int time)
     }
     else if (strcmp(state, "finished") == 0)
     {
-        fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d TA %d WTA %.2f\n",
-                time, process->id, state, process->arrival_time, process->runtime,
-                0, process->waiting_time,
-                (time - process->arrival_time), // Turnaround time
+        fprintf(log_file, "At time %d process %d finished arr %d total %d remain %d wait %d TA %d WTA %.2f\n",
+                time, process->id, process->arrival_time, process->runtime,
+                process->remaining_time, process->waiting_time,
+                (time - process->arrival_time),
                 (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0);
-        /* Weighted turnaround time */
+        fflush(log_file);
 
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d finished at time %d\n"ANSI_COLOR_RESET,
@@ -147,12 +146,24 @@ void log_process_state(PCB* process, char* state, int time)
     }
     else if (strcmp(state, "resumed") == 0)
     {
-        fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
-                time, process->id, state, process->arrival_time, process->runtime,
+        fprintf(log_file, "At time %d process %d resumed arr %d total %d remain %d wait %d\n",
+                time, process->id, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
+        fflush(log_file);
 
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d resumed at time %d\n"ANSI_COLOR_RESET,
+                   process->pid, time);
+    }
+    else if (strcmp(state, "stopped") == 0)
+    {
+        fprintf(log_file, "At time %d process %d stopped arr %d total %d remain %d wait %d\n",
+                time, process->id, process->arrival_time, process->runtime,
+                process->remaining_time, process->waiting_time);
+        fflush(log_file);
+
+        if (DEBUG)
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d stopped at time %d\n"ANSI_COLOR_RESET,
                    process->pid, time);
     }
     else if (strcmp(state, "preempted") == 0 || strcmp(state, "blocked") == 0)
@@ -160,6 +171,7 @@ void log_process_state(PCB* process, char* state, int time)
         fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
                 time, process->id, state, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
+        fflush(log_file);
 
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d %s at time %d\n"ANSI_COLOR_RESET,
@@ -170,9 +182,10 @@ void log_process_state(PCB* process, char* state, int time)
         fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
                 time, process->id, state, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
+        fflush(log_file);
     }
 
-    fflush(log_file);
+    usleep(10000);
 }
 
 void generate_statistics()

@@ -30,7 +30,7 @@ extern int quantum;
 extern int finished_processes_count;
 int process_shm_id = -1; // Shared memory ID
 
-int wait_for_process_state_change(pid_t pid, int expected_state, int max_attempts);
+void wait_for_process_state_change(pid_t pid, int expected_state);
 
 void run_scheduler()
 {
@@ -123,17 +123,13 @@ void run_scheduler()
                 {
                     // Preempt current process
                     kill(running_process->pid, SIGTSTP);
-                    
+
                     // Wait for process to acknowledge the signal
-                    if (wait_for_process_state_change(running_process->pid, PROC_IDLE, 50) == 0) {
-                        if (DEBUG)
-                            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d successfully stopped\n"ANSI_COLOR_RESET, 
-                                  running_process->pid);
-                    } else {
-                        if (DEBUG)
-                            printf(ANSI_COLOR_RED"[SCHEDULER] Warning: Process %d did not stop properly\n"ANSI_COLOR_RESET, 
-                                  running_process->pid);
-                    }
+                    wait_for_process_state_change(running_process->pid, PROC_IDLE);
+                    if (DEBUG)
+                        printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d successfully stopped\n"ANSI_COLOR_RESET,
+                               running_process->pid);
+
 
                     // Update process state and requeue
                     int executed_time = get_clk() - start_time;
@@ -147,6 +143,7 @@ void run_scheduler()
                     break;
                 }
             }
+            // else receive_processes();
         }
 
         // Process finished its time slice
@@ -491,22 +488,33 @@ int init_scheduler()
     return 0;
 }
 
-int wait_for_process_state_change(pid_t pid, int expected_state, int max_attempts) 
+void wait_for_process_state_change(pid_t pid, int expected_state)
 {
-    int attempts = 0;
     process_control_t ctrl;
-    
-    do {
+    int attempts = 0;;
+    do
+    {
         ctrl = read_process_control(process_shm_id, pid);
-        
-        if (ctrl.state == expected_state) {
-            return 0;  // Success - process changed to expected state
+
+        if (ctrl.state == expected_state)
+        {
+            return;
         }
-        
+
         // Small wait between checks
         usleep(500);
         attempts++;
-    } while (attempts < max_attempts);
-    
-    return -1;  // Failed to observe state change in time
+        if (attempts > 20)
+        {
+            fprintf(
+                stderr,
+                ANSI_COLOR_RED"[SCHEDULER] Failed to observe state change for PID %d after %d attempts\n"
+                ANSI_COLOR_RESET,
+                pid, attempts);
+            return;
+        }
+    }
+    while (1);
+
+    return; // Failed to observe state change in time
 }

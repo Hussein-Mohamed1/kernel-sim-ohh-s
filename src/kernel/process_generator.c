@@ -77,6 +77,35 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Before forking children
+    signal(SIGCHLD, child_process_handler);
+    
+    pid_t clk_pid = fork();
+    if (clk_pid == 0)
+    {
+        // Child: run clock
+        init_clk();
+        sync_clk();
+        run_clk();
+        exit(0);
+    }
+
+    // Wait for clock shared memory to be initialized before proceeding
+    int clk_shmid;
+    while ((clk_shmid = shmget(300, 4, 0444)) == -1)
+    {
+        usleep(10000); // 10ms
+    }
+
+    pid_t scheduler_pid = fork();
+    if (scheduler_pid == 0)
+    {
+        // Child: run scheduler
+        run_scheduler();
+        exit(0);
+    }
+
+
     // Get List of processes
     process_parameters = read_process_file(process_file, &process_count);
 
@@ -90,111 +119,70 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    pid_t process_generator_pid = getpid();
-    pid_t clk_pid = fork();
-    // Child b
-    // Child -> Fork processes and sends their pcb to the scheduler at the appropriate time
-    if (clk_pid == 0)
+    sync_clk();
+    // Parent: process generator
+    int remaining_processes = process_count;
+    int crt_clk = get_clk();
+    int old_clk = crt_clk;
+    while (remaining_processes > 0)
     {
-        // Child -> run_scheduler
-        pid_t scheduler_pid = fork();
-        if (scheduler_pid == 0)
+        while ((crt_clk = get_clk()) == old_clk);
+        old_clk = crt_clk;
+
+        int messages_sent = 0;
+        for (int i = 0; i < process_count; i++)
         {
-            signal(SIGINT, process_generator_cleanup);
-            signal(SIGCHLD, child_process_handler);
-            sync_clk();
-
-            int remaining_processes = process_count;
-            int crt_clk = get_clk();
-            int old_clk = crt_clk;
-            while (remaining_processes > 0)
+            if (process_parameters[i] != NULL && process_parameters[i]->arrival_time == crt_clk)
             {
-                while ((crt_clk = get_clk()) == old_clk);
-                old_clk = crt_clk;
-
-                int messages_sent = 0;
-                // Check the process_parameters[] for processes whose arrival time == crt_clk, and fork/send them
-                for (int i = 0; i < process_count; i++)
+                // Fork the process at its arrival time
+                const pid_t process_pid = fork();
+                if (process_pid == 0)
                 {
-                    if (process_parameters[i] != NULL && process_parameters[i]->arrival_time == crt_clk)
+                    run_process(process_parameters[i]->runtime, scheduler_pid);
+                    exit(0);
+                }
+                else if (process_pid > 0)
+                {
+                    process_parameters[i]->pid = process_pid;
+                    PCB proc_pcb = {
+                        1, process_parameters[i]->id, process_parameters[i]->pid,
+                        process_parameters[i]->arrival_time, process_parameters[i]->runtime,
+                        process_parameters[i]->runtime, process_parameters[i]->priority, 0, -1, -1, -1, -1, -1,
+                        -1,
+                        PROC_IDLE,
+                        process_parameters[i]->memsize, -1
+                    };
+                    if (msgsnd(msgid, &proc_pcb, sizeof(PCB) - sizeof(long), 0) == -1)
                     {
-                        // Fork the process at its arrival time
-                        const pid_t process_pid = fork();
-                        if (process_pid == 0)
-                        {
-                            // In child: run_process directly
-                            run_process(process_parameters[i]->runtime, process_generator_pid);
-                            exit(0);
-                        }
-                        else if (process_pid > 0)
-                        {
-                            process_parameters[i]->pid = process_pid;
-                            // Send PCB to scheduler
-                            PCB proc_pcb = {
-                                1, process_parameters[i]->id, process_parameters[i]->pid,
-                                process_parameters[i]->arrival_time, process_parameters[i]->runtime,
-                                process_parameters[i]->runtime, process_parameters[i]->priority, 0, -1, -1, -1, -1, -1,
-                                -1,
-                                PROC_IDLE,
-                                process_parameters[i]->memsize, -1
-                            };
-                            if (msgsnd(msgid, &proc_pcb, sizeof(PCB) - sizeof(long), 0) == -1)
-                            {
-                                if (DEBUG)
-                                    perror("Error sending message");
-                            }
-                        }
-                        else
-                        {
-                            perror("fork failed");
-                        }
-
-                        // Cleanup
-                        free(process_parameters[i]);
-                        process_parameters[i] = NULL;
-                        remaining_processes--;
-                        messages_sent++;
+                        if (DEBUG)
+                            perror("Error sending message");
                     }
-                    else if (process_parameters[i] != NULL && process_parameters[i]->arrival_time > crt_clk)
-                        break;
+                }
+                else
+                {
+                    perror("fork failed");
                 }
 
-                if (messages_sent > 0 && DEBUG)
-                    printf(ANSI_COLOR_MAGENTA"[MAIN] Sent %d message(s) to scheduler\n"ANSI_COLOR_RESET, messages_sent);
+                free(process_parameters[i]);
+                process_parameters[i] = NULL;
+                remaining_processes--;
+                messages_sent++;
             }
-
-            if (DEBUG)
-                printf(
-                    ANSI_COLOR_MAGENTA"[MAIN] All processes have been sent, waiting until all processes terminate\n"
-                    ANSI_COLOR_RESET);
-
-            // Wait for all children to exit before cleanup
-            int status;
-            pid_t pid;
-            while ((pid = waitpid(-1, &status, 0)) > 0) {
-                if (DEBUG)
-                    printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Child process %d exited with status %d\n"ANSI_COLOR_RESET,
-                           pid, WEXITSTATUS(status));
-            }
-
-            process_generator_cleanup(0);
-            exit(0);
+            else if (process_parameters[i] != NULL && process_parameters[i]->arrival_time > crt_clk)
+                break;
         }
-        else
-        {
-            // Parent
-            init_clk();
-            sync_clk();
-            run_clk();
-        }
-    }
-    else
-    {
-        if (DEBUG)
-            printf(ANSI_COLOR_MAGENTA"[MAIN] Running Scheduler with pid: %d\n"ANSI_COLOR_RESET, getpid());
-        run_scheduler();
+
+        if (messages_sent > 0 && DEBUG)
+            printf(ANSI_COLOR_MAGENTA"[MAIN] Sent %d message(s) to scheduler\n"ANSI_COLOR_RESET, messages_sent);
     }
 
+    if (DEBUG)
+        printf(
+            ANSI_COLOR_MAGENTA"[MAIN] All processes have been sent, waiting for scheduler to terminate\n"
+            ANSI_COLOR_RESET);
+
+    process_generator_cleanup(scheduler_pid);
+    destroy_clk(1);
     return 0;
 }
 
@@ -293,7 +281,7 @@ void child_process_handler(int signum)
     }
 }
 
-void process_generator_cleanup(int signum)
+void process_generator_cleanup(int scheduler_pid)
 {
     // Add static flag to prevent double execution
     static int cleanup_in_progress = 0;
@@ -302,18 +290,17 @@ void process_generator_cleanup(int signum)
     if (cleanup_in_progress) return;
     cleanup_in_progress = 1;
 
-    // Free each ProcessMessage
-    for (int i = 0; i < MAX_PROCESSES; i++)
-    {
-        if (process_parameters[i] != NULL)
-        {
-            free(process_parameters[i]);
-            process_parameters[i] = NULL;
-        }
-    }
-
     if (process_parameters != NULL)
     {
+        // Free each ProcessMessage
+        for (int i = 0; i < MAX_PROCESSES; i++)
+        {
+            if (process_parameters[i] != NULL)
+            {
+                free(process_parameters[i]);
+                process_parameters[i] = NULL;
+            }
+        }
         free(process_parameters);
         process_parameters = NULL; // Ensure this is set to NULL
     }
@@ -360,28 +347,14 @@ void process_generator_cleanup(int signum)
         }
     }
 
-    // Wait for all child processes to exit
+    // Wait only for the scheduler to exit
     int status;
-    pid_t pid;
-
+    waitpid(scheduler_pid, &status, 0);
     if (DEBUG)
-        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Waiting for all child processes to exit\n"ANSI_COLOR_RESET);
-
-    // Wait for any remaining children (blocking wait)
-    while ((pid = waitpid(-1, &status, 0)) > 0)
-    {
-        if (DEBUG)
-            printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Child process %d exited with status %d\n"ANSI_COLOR_RESET,
-                   pid, WEXITSTATUS(status));
-    }
-
-    if (DEBUG && pid == -1)
-        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] All child processes have exited\n"ANSI_COLOR_RESET);
-
-    destroy_clk(1);
+        printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Scheduler process %d exited with status %d\n"ANSI_COLOR_RESET,
+               scheduler_pid, WEXITSTATUS(status));
     if (DEBUG)
         printf(ANSI_COLOR_BLUE"[PROC_GENERATOR] Resources cleaned up\n"ANSI_COLOR_RESET);
 
-
-    exit(0);
+    signal(SIGINT,NULL);
 }
