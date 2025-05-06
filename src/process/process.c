@@ -42,11 +42,7 @@ void run_process(const int runtime, const pid_t process_generator_pid)
     while (remaining_runtime > 0)
     {
         // Wait for SIGCONT to start/resume execution
-        while (!is_running && remaining_runtime > 0)
-        {
-            // Idle wait
-            usleep(1000); // Small sleep to avoid CPU hogging
-        }
+        while (!is_running && remaining_runtime > 0);
 
         // Process is now running
         if (remaining_runtime <= 0) break;

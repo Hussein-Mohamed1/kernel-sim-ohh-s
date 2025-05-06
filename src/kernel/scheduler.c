@@ -502,16 +502,14 @@ void wait_for_process_state_change(pid_t pid, int expected_state)
         }
 
         // Small wait between checks
-        usleep(500);
         attempts++;
-        if (attempts > 20)
+        if (attempts % 20 == 0)
         {
             fprintf(
                 stderr,
                 ANSI_COLOR_RED"[SCHEDULER] Failed to observe state change for PID %d after %d attempts\n"
                 ANSI_COLOR_RESET,
                 pid, attempts);
-            return;
         }
     }
     while (1);
