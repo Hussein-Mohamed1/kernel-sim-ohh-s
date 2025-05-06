@@ -98,7 +98,22 @@ void run_scheduler()
         // Write control info and resume process
         write_process_control(process_shm_id, running_process->pid,
                               time_slice, PROC_RUNNING);
+                              
+        // Add diagnostic output to track the process signal sequence
+        if (DEBUG)
+            printf(ANSI_COLOR_YELLOW"[SCHEDULER] Sending SIGCONT to process %d with time_slice=%d\n"ANSI_COLOR_RESET, 
+                   running_process->pid, time_slice);
+                   
         kill(running_process->pid, SIGCONT);
+        
+        // Give the process a moment to react to the signal
+        usleep(5000);
+        
+        // Verify process received control info
+        process_control_t ctrl_verify = read_process_control(process_shm_id, running_process->pid);
+        if (DEBUG)
+            printf(ANSI_COLOR_YELLOW"[SCHEDULER] Process %d status after SIGCONT: state=%d\n"ANSI_COLOR_RESET,
+                   running_process->pid, ctrl_verify.state);
 
         // Wait for process to complete time slice
         while (1)
@@ -113,41 +128,49 @@ void run_scheduler()
                 break;
             }
 
-            // For SRTN, check for preemption
+            // For SRTN, check for preemption);
             if (scheduler_type == SRTN)
             {
                 receive_processes(); // Check for new processes
-
+                if (running_process == NULL) break;
                 PCB* shortest = min_heap_get_min(min_heap_queue);
-                if (shortest && shortest->remaining_time < running_process->remaining_time)
+                if (shortest && shortest->remaining_time)
                 {
-                    // Preempt current process
-                    kill(running_process->pid, SIGTSTP);
+                    // Calculate the actual remaining time of the running process
+                    int current_time = get_clk();
+                    int executed_time = current_time - start_time;
+                    int actual_remaining = running_process->remaining_time - executed_time;
 
-                    // Wait for process to acknowledge the signal
-                    wait_for_process_state_change(running_process->pid, PROC_IDLE);
-                    if (DEBUG)
-                        printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d successfully stopped\n"ANSI_COLOR_RESET,
-                               running_process->pid);
+                    if (shortest->remaining_time < actual_remaining)
+                    {
+                        printf(ANSI_COLOR_BOLD_RED"PREMPTING"ANSI_COLOR_RESET);
+                        // Wait for process to acknowledge the signal
+                        write_process_control(process_shm_id, running_process->pid, 0, PROC_IDLE);
 
+                        // Preempt current process
+                        kill(running_process->pid, SIGTSTP);
 
-                    // Update process state and requeue
-                    int executed_time = get_clk() - start_time;
-                    running_process->remaining_time -= executed_time;
-                    running_process->status = PROC_IDLE;
-                    running_process->last_run_time = get_clk();
+                        if (DEBUG)
+                            printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d successfully stopped\n"ANSI_COLOR_RESET,
+                                   running_process->pid);
 
-                    log_process_state(running_process, "stopped", get_clk());
-                    min_heap_insert(min_heap_queue, running_process);
-                    running_process = NULL;
-                    break;
+                        // Update process state and requeue
+                        running_process->remaining_time = actual_remaining;
+                        running_process->status = PROC_IDLE;
+                        running_process->last_run_time = get_clk();
+
+                        log_process_state(running_process, "stopped", get_clk());
+                        min_heap_insert(min_heap_queue, running_process);
+                        running_process = NULL;
+                        break;
+                    }
                 }
             }
             // else receive_processes();
         }
 
         // Process finished its time slice
-        if (running_process)
+        if (running_process && running_process->remaining_time > 0)
         {
             int executed_time = get_clk() - start_time;
             running_process->remaining_time -= executed_time;
@@ -491,28 +514,44 @@ int init_scheduler()
 void wait_for_process_state_change(pid_t pid, int expected_state)
 {
     process_control_t ctrl;
-    int attempts = 0;;
+    int attempts = 0;
+    int max_attempts = 100; // Add a reasonable limit
+    
     do
     {
         ctrl = read_process_control(process_shm_id, pid);
 
         if (ctrl.state == expected_state)
         {
+            if (DEBUG)
+                printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d changed to expected state %d\n"ANSI_COLOR_RESET,
+                      pid, expected_state);
             return;
         }
 
         // Small wait between checks
         attempts++;
-        if (attempts % 20 == 0)
+        if (attempts % 10 == 0)
         {
-            fprintf(
-                stderr,
-                ANSI_COLOR_RED"[SCHEDULER] Failed to observe state change for PID %d after %d attempts\n"
-                ANSI_COLOR_RESET,
-                pid, attempts);
+            fprintf(stderr, ANSI_COLOR_RED"[SCHEDULER] Process %d still in state %d (expected %d) after %d attempts\n"
+                    ANSI_COLOR_RESET, pid, ctrl.state, expected_state, attempts);
+            
+            // Resend the signal after a few attempts
+            if (expected_state == PROC_IDLE)
+                kill(pid, SIGTSTP);
+            else if (expected_state == PROC_RUNNING)
+                kill(pid, SIGCONT);
         }
+        
+        if (attempts >= max_attempts) {
+            fprintf(stderr, ANSI_COLOR_RED"[SCHEDULER] Giving up on waiting for process %d to change state\n"
+                    ANSI_COLOR_RESET, pid);
+            break;
+        }
+        
+        usleep(1000); // Short sleep to prevent CPU hogging
     }
     while (1);
 
-    return; // Failed to observe state change in time
+    return;
 }
