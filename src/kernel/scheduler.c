@@ -98,17 +98,17 @@ void run_scheduler()
         // Write control info and resume process
         write_process_control(process_shm_id, running_process->pid,
                               time_slice, PROC_RUNNING);
-                              
+
         // Add diagnostic output to track the process signal sequence
         if (DEBUG)
-            printf(ANSI_COLOR_YELLOW"[SCHEDULER] Sending SIGCONT to process %d with time_slice=%d\n"ANSI_COLOR_RESET, 
+            printf(ANSI_COLOR_YELLOW"[SCHEDULER] Sending SIGCONT to process %d with time_slice=%d\n"ANSI_COLOR_RESET,
                    running_process->pid, time_slice);
-                   
+
         kill(running_process->pid, SIGCONT);
-        
+
         // Give the process a moment to react to the signal
         usleep(5000);
-        
+
         // Verify process received control info
         process_control_t ctrl_verify = read_process_control(process_shm_id, running_process->pid);
         if (DEBUG)
@@ -331,7 +331,9 @@ void scheduler_cleanup(int signum)
             if (pcb != NULL)
                 free(pcb);
         }
-        free(rr_queue);
+        clearQueue(rr_queue);
+        if (rr_queue)
+            free(rr_queue);
         rr_queue = NULL;
     }
 
@@ -516,7 +518,7 @@ void wait_for_process_state_change(pid_t pid, int expected_state)
     process_control_t ctrl;
     int attempts = 0;
     int max_attempts = 100; // Add a reasonable limit
-    
+
     do
     {
         ctrl = read_process_control(process_shm_id, pid);
@@ -525,7 +527,7 @@ void wait_for_process_state_change(pid_t pid, int expected_state)
         {
             if (DEBUG)
                 printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d changed to expected state %d\n"ANSI_COLOR_RESET,
-                      pid, expected_state);
+                       pid, expected_state);
             return;
         }
 
@@ -535,20 +537,21 @@ void wait_for_process_state_change(pid_t pid, int expected_state)
         {
             fprintf(stderr, ANSI_COLOR_RED"[SCHEDULER] Process %d still in state %d (expected %d) after %d attempts\n"
                     ANSI_COLOR_RESET, pid, ctrl.state, expected_state, attempts);
-            
+
             // Resend the signal after a few attempts
             if (expected_state == PROC_IDLE)
                 kill(pid, SIGTSTP);
             else if (expected_state == PROC_RUNNING)
                 kill(pid, SIGCONT);
         }
-        
-        if (attempts >= max_attempts) {
+
+        if (attempts >= max_attempts)
+        {
             fprintf(stderr, ANSI_COLOR_RED"[SCHEDULER] Giving up on waiting for process %d to change state\n"
                     ANSI_COLOR_RESET, pid);
             break;
         }
-        
+
         usleep(1000); // Short sleep to prevent CPU hogging
     }
     while (1);
