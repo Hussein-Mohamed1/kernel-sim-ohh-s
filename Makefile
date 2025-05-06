@@ -4,8 +4,13 @@ PROCESS_EXEC := process
 
 BUILD_DIR := ./build
 KERNEL_DIR := ./src/kernel
+SHARED_MEM_DIR := ./src/shared_mem
 PROCESS_DIR := ./src/process
 DATA_STRUCTURES_DIR := ./src/data_structures
+
+# Add shared_mem source
+SHARED_MEM_SRC := $(SHARED_MEM_DIR)/shared_mem.c
+SHARED_MEM_OBJ := $(BUILD_DIR)/$(SHARED_MEM_DIR)/shared_mem.c.o
 
 # Find source files for each component
 KERNEL_ONLY_SRCS := $(shell find $(KERNEL_DIR) -name '*.cpp' -or -name '*.c' -not -name 'clk.c' -or -name '*.s')
@@ -13,9 +18,9 @@ PROCESS_SRCS := $(shell find $(PROCESS_DIR) -name '*.cpp' -or -name '*.c' -or -n
 DATA_STRUCTURES_SRCS := $(shell find $(DATA_STRUCTURES_DIR) -name '*.cpp' -or -name '*.c' -or -name '*.s')
 CLK_SRCS := $(KERNEL_DIR)/clk.c
 
-# Convert source files to object files
-KERNEL_ONLY_OBJS := $(KERNEL_ONLY_SRCS:%=$(BUILD_DIR)/%.o)
-PROCESS_OBJS := $(PROCESS_SRCS:%=$(BUILD_DIR)/%.o)
+# Add shared_mem to both kernel and process objects
+KERNEL_ONLY_OBJS := $(KERNEL_ONLY_SRCS:%=$(BUILD_DIR)/%.o) $(SHARED_MEM_OBJ)
+PROCESS_OBJS := $(PROCESS_SRCS:%=$(BUILD_DIR)/%.o) $(SHARED_MEM_OBJ)
 DATA_STRUCTURES_OBJS := $(DATA_STRUCTURES_SRCS:%=$(BUILD_DIR)/%.o)
 CLK_OBJS := $(CLK_SRCS:%=$(BUILD_DIR)/%.o)
 

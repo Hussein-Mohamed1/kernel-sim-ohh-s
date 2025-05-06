@@ -64,6 +64,7 @@ int get_clk()
     if (shmaddr == NULL)
     {
         perror("[CLOCK] SHMADDR IS BEING ACCESSED ALTHOUGH NULL");
+        sleep(1);
         return -1;
     }
     else
@@ -76,8 +77,8 @@ void sync_clk()
     while ((int)shmidLocal == -1)
     {
         // Make sure that the clock exists
-        if(DEBUG)
-        printf(ANSI_COLOR_CYAN"[CLOCK] Wait! The clock not initialized yet!\n"ANSI_COLOR_RESET);
+        if (DEBUG)
+            printf(ANSI_COLOR_CYAN"[CLOCK] Wait! The clock not initialized yet!\n"ANSI_COLOR_RESET);
         sleep(1);
         shmidLocal = shmget(SHKEY, 4, 0444);
     }

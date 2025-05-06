@@ -15,6 +15,9 @@
 
 #include "scheduler.h"
 #include <bits/getopt_core.h>
+
+#include "shared_mem.h"
+#include "../process/process.h"
 int scheduler_type = -1; // Default invalid value
 char* process_file = "processes.txt"; // Default filename
 int quantum = 2; // Default quantum value
@@ -135,6 +138,35 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Before forking children
+    signal(SIGCHLD, child_process_handler);
+    
+    pid_t clk_pid = fork();
+    if (clk_pid == 0)
+    {
+        // Child: run clock
+        init_clk();
+        sync_clk();
+        run_clk();
+        exit(0);
+    }
+
+    // Wait for clock shared memory to be initialized before proceeding
+    int clk_shmid;
+    while ((clk_shmid = shmget(300, 4, 0444)) == -1)
+    {
+        usleep(10000); // 10ms
+    }
+
+    pid_t scheduler_pid = fork();
+    if (scheduler_pid == 0)
+    {
+        // Child: run scheduler
+        run_scheduler();
+        exit(0);
+    }
+
+
     // Get List of processes
     process_parameters = read_process_file(process_file, &process_count);
     remaining_processes = process_count;
@@ -186,7 +218,7 @@ int main(int argc, char* argv[])
             while (remaining_processes > 0 || mm_has_waiting_processes())
             {
                 // Ensure that we move by increments of 1
-                while ((crt_clk = get_clk()) - old_clk == 0);
+                while ((crt_clk = get_clk()) == old_clk);
                 old_clk = crt_clk;
 
                 // First, try to process waiting list
@@ -211,7 +243,7 @@ int main(int argc, char* argv[])
                         }
                         
                         // Memory allocation succeeded, now fork
-                        pid_t pid = fork();
+                        const pid_t pid = fork();
                         if (pid == 0)
                         {
                             char runtime_str[16];
@@ -259,26 +291,63 @@ int main(int argc, char* argv[])
                     else if (process_parameters[i] != NULL && process_parameters[i]->arrival_time > crt_clk)
                         break;
                 }
+    sync_clk();
+    // Parent: process generator
+    int remaining_processes = process_count;
+    int crt_clk = get_clk();
+    int old_clk = crt_clk;
+    while (remaining_processes > 0)
+    {
+        while ((crt_clk = get_clk()) == old_clk);
+        old_clk = crt_clk;
 
-                if (messages_sent > 0 && DEBUG)
+        for (int i = 0; i < process_count; i++)
+        {
+            if (process_parameters[i] != NULL && process_parameters[i]->arrival_time == crt_clk)
+            {
+                // Fork the process at its arrival time
+                const pid_t process_pid = fork();
+                if (process_pid == 0)
+                {
+                    run_process(process_parameters[i]->runtime, scheduler_pid);
+                    exit(0);
+                }
+                else if (process_pid > 0)
+                {
+                    process_parameters[i]->pid = process_pid;
+                    PCB proc_pcb = {
+                        1, process_parameters[i]->id, process_parameters[i]->pid,
+                        process_parameters[i]->arrival_time, process_parameters[i]->runtime,
+                        process_parameters[i]->runtime, process_parameters[i]->priority, 0, -1, -1, -1, -1, -1,
+                        -1,
+                        PROC_IDLE,
+                        process_parameters[i]->memsize, -1
+                    };
+                    if (msgsnd(msgid, &proc_pcb, sizeof(PCB) - sizeof(long), 0) == -1)
+                    {
+                        if (DEBUG)
+                            perror("Error sending message");
+                    }
+                }
+                else
+                {
+                    perror("fork failed");
+                    mm_free_by_id(process_parameters[i]->id);
+                }
+
+                free(process_parameters[i]);
+                process_parameters[i] = NULL;
+                remaining_processes--;
+                messages_sent++;
+            }
+            else if (process_parameters[i] != NULL && process_parameters[i]->arrival_time > crt_clk)
+                break;
+        }
+
+                if (messages_sent > 0 && DEBUG) 
                     printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] Sent %d message(s) to scheduler\n"ANSI_COLOR_RESET, messages_sent);
                 
-                // Check if we have waiting processes that might now be allocatable
-                if (messages_sent > 0) {
-                    process_waiting_list();
-                }
                 
-                if (DEBUG && remaining_processes == 0 && mm_has_waiting_processes()) {
-                    printf(ANSI_COLOR_MAGENTA"[PROC_GENERATOR] All processes arrived, %d waiting for memory\n"
-                        ANSI_COLOR_RESET, mm_get_waiting_count());
-                }
-                
-                // If all processes have been read from the file but some are still waiting,
-                // we need to keep trying until memory becomes available
-                if (remaining_processes == 0 && mm_has_waiting_processes()) {
-                    // Small delay to avoid busy waiting
-                    usleep(50000); // 50ms
-                }
             }
 
             if (DEBUG)
@@ -294,27 +363,12 @@ int main(int argc, char* argv[])
             }
             
             
-            process_generator_cleanup(process_generator_pid);
-            // Make the process generator wait until all children exited
-            while (wait(NULL) > 0);
-            // Clean up memory manager
-            //mm_destroy();
-            exit(0);
-        }
-        else
-        {
-            // Parent
-            init_clk();
-            sync_clk();
-            run_clk();
+            
         }
     }
-    else
-    {
-        if (DEBUG)
-            printf(ANSI_COLOR_MAGENTA"[MAIN] Running Scheduler with pid: %d\n"ANSI_COLOR_RESET, getpid());
-        run_scheduler();
-    }
+    process_generator_cleanup(scheduler_pid);
+    mm_destroy();
+    destroy_clk(1);
 
     return 0;
 }
@@ -334,7 +388,7 @@ processParameters** read_process_file(const char* filename, int* count)
     }
 
     // Count lines to allocate memory
-    char line[100];
+    char line[256];
     int line_count = 0;
 
     while (fgets(line, sizeof(line), file))
@@ -460,7 +514,7 @@ void process_generator_cleanup(int scheduler_pid)
     if (process_parameters != NULL)
     {
         // Free each ProcessMessage
-        for (int i = 0; i < 100; i++)
+        for (int i = 0; i < MAX_PROCESSES; i++)
         {
             if (process_parameters[i] != NULL)
             {
@@ -471,6 +525,7 @@ void process_generator_cleanup(int scheduler_pid)
         free(process_parameters);
         process_parameters = NULL; // Ensure this is set to NULL
     }
+
 
     // Wait until message queue is empty before removing it
     if (msgid != -1)
