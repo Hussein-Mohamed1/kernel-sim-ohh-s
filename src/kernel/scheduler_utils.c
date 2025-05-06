@@ -211,6 +211,20 @@ void generate_statistics()
     float total_ta = 0;
 
     int total_execution_time = get_clk(); // Total simulation time
+    
+    // Ensure total_busy_time is properly initialized and has valid data
+    if (total_busy_time <= 0) {
+        // If total_busy_time is not tracked correctly, recalculate based on process execution times
+        for (int i = 0; i < finished_processes_count; i++) {
+            if (finished_process_info[i] != NULL) {
+                total_busy_time += finished_process_info[i]->ta - finished_process_info[i]->waiting_time;
+            }
+        }
+        
+        if (DEBUG)
+            printf(ANSI_COLOR_GREEN"[SCHEDULER] Recalculated total_busy_time = %d\n"ANSI_COLOR_RESET, 
+                   total_busy_time);
+    }
 
     // Loop through all finished processes
     for (int i = 0; i < finished_processes_count; i++)
@@ -252,8 +266,11 @@ void generate_statistics()
     }
     float std_wta = sqrt(sum_squared_diff / finished_processes_count);
 
-    // Calculate CPU utilization
-    float cpu_utilization = ((float)(total_busy_time) / total_execution_time) * 100;
+    // Calculate CPU utilization ensuring we don't divide by zero
+    float cpu_utilization = 0.0;
+    if (total_execution_time > 0) {
+        cpu_utilization = ((float)(total_busy_time) / total_execution_time) * 100.0;
+    }
 
     // Write to performance file
     FILE* perf_file = fopen("scheduler.perf", "w");

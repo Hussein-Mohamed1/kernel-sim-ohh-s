@@ -64,14 +64,23 @@ void run_scheduler()
 
         if (scheduler_type == HPF)
         {
+            // Start measuring process time for CPU utilization
+            start_process_time = get_clk();
+            
             next_process = hpf(min_heap_queue, get_clk());
         }
         else if (scheduler_type == SRTN)
         {
+            // Start measuring process time for CPU utilization
+            start_process_time = get_clk();
+            
             next_process = srtn(min_heap_queue);
         }
         else if (scheduler_type == RR)
         {
+            // Start measuring process time for CPU utilization
+            start_process_time = get_clk();
+            
             next_process = rr(rr_queue, get_clk());
         }
 
@@ -203,6 +212,15 @@ void run_scheduler()
                 min_heap_insert(min_heap_queue, running_process);
                 running_process = NULL;
             }
+        }
+
+        // After the process finishes or is preempted, update CPU busy time
+        if (running_process == NULL || running_process->status != PROC_RUNNING) {
+            end_process_time = get_clk();
+            total_busy_time += (end_process_time - start_process_time);
+            if (DEBUG)
+                printf(ANSI_COLOR_GREEN"[SCHEDULER] CPU busy time updated: +%d units, total=%d\n"ANSI_COLOR_RESET,
+                       (end_process_time - start_process_time), total_busy_time);
         }
     }
 
