@@ -30,8 +30,6 @@ extern int quantum;
 extern int finished_processes_count;
 int process_shm_id = -1; // Shared memory ID
 
-void wait_for_process_state_change(pid_t pid, int expected_state);
-
 void run_scheduler()
 {
     signal(SIGINT, scheduler_cleanup);
@@ -152,7 +150,7 @@ void run_scheduler()
 
                     if (shortest->remaining_time < actual_remaining)
                     {
-                        printf(ANSI_COLOR_BOLD_RED"PREMPTING"ANSI_COLOR_RESET);
+                        printf(ANSI_COLOR_BOLD_RED"PREMPTING\n"ANSI_COLOR_RESET);
                         // Wait for process to acknowledge the signal
                         write_process_control(process_shm_id, running_process->pid, 0, PROC_IDLE);
 
@@ -529,50 +527,4 @@ int init_scheduler()
         printf(ANSI_COLOR_GREEN"[SCHEDULER] Scheduler initialized successfully at time %d\n"ANSI_COLOR_RESET,
                current_time);
     return 0;
-}
-
-void wait_for_process_state_change(pid_t pid, int expected_state)
-{
-    process_control_t ctrl;
-    int attempts = 0;
-    int max_attempts = 100; // Add a reasonable limit
-
-    do
-    {
-        ctrl = read_process_control(process_shm_id, pid);
-
-        if (ctrl.state == expected_state)
-        {
-            if (DEBUG)
-                printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d changed to expected state %d\n"ANSI_COLOR_RESET,
-                       pid, expected_state);
-            return;
-        }
-
-        // Small wait between checks
-        attempts++;
-        if (attempts % 10 == 0)
-        {
-            fprintf(stderr, ANSI_COLOR_RED"[SCHEDULER] Process %d still in state %d (expected %d) after %d attempts\n"
-                    ANSI_COLOR_RESET, pid, ctrl.state, expected_state, attempts);
-
-            // Resend the signal after a few attempts
-            if (expected_state == PROC_IDLE)
-                kill(pid, SIGTSTP);
-            else if (expected_state == PROC_RUNNING)
-                kill(pid, SIGCONT);
-        }
-
-        if (attempts >= max_attempts)
-        {
-            fprintf(stderr, ANSI_COLOR_RED"[SCHEDULER] Giving up on waiting for process %d to change state\n"
-                    ANSI_COLOR_RESET, pid);
-            break;
-        }
-
-        usleep(1000); // Short sleep to prevent CPU hogging
-    }
-    while (1);
-
-    return;
 }

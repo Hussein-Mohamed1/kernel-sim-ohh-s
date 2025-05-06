@@ -12,7 +12,7 @@
 #include "min_heap.h"
 #include "colors.h"
 #include "../shared_mem/shared_mem.h"
-
+#include <pthread.h>
 extern int total_busy_time;
 extern int scheduler_type;
 extern finishedProcessInfo** finished_process_info;
@@ -117,75 +117,91 @@ PCB* rr(Queue* ready_queue, int current_time)
     return NULL;
 }
 
-// Update log_process_state to handle more states
+// Update log_process_state with improved buffer handling
 void log_process_state(PCB* process, char* state, int time)
 {
+    // Create a complete message string first
+    char log_message[512];
+    
     if (strcmp(state, "started") == 0)
     {
-        fprintf(log_file, "At time %d process %d started arr %d total %d remain %d wait %d\n",
+        sprintf(log_message, "At time %d process %d started arr %d total %d remain %d wait %d\n",
                 time, process->id, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
-        fflush(log_file);
-
+                
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d started at time %d\n"ANSI_COLOR_RESET,
                    process->pid, time);
     }
     else if (strcmp(state, "finished") == 0)
     {
-        fprintf(log_file, "At time %d process %d finished arr %d total %d remain %d wait %d TA %d WTA %.2f\n",
+        sprintf(log_message, "At time %d process %d finished arr %d total %d remain %d wait %d TA %d WTA %.2f\n",
                 time, process->id, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time,
                 (time - process->arrival_time),
                 (process->runtime > 0) ? ((float)(time - process->arrival_time) / process->runtime) : 0.0);
-        fflush(log_file);
-
+                
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d finished at time %d\n"ANSI_COLOR_RESET,
                    process->pid, time);
     }
     else if (strcmp(state, "resumed") == 0)
     {
-        fprintf(log_file, "At time %d process %d resumed arr %d total %d remain %d wait %d\n",
+        sprintf(log_message, "At time %d process %d resumed arr %d total %d remain %d wait %d\n",
                 time, process->id, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
-        fflush(log_file);
-
+                
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d resumed at time %d\n"ANSI_COLOR_RESET,
                    process->pid, time);
     }
     else if (strcmp(state, "stopped") == 0)
     {
-        fprintf(log_file, "At time %d process %d stopped arr %d total %d remain %d wait %d\n",
+        sprintf(log_message, "At time %d process %d stopped arr %d total %d remain %d wait %d\n",
                 time, process->id, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
-        fflush(log_file);
-
+                
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d stopped at time %d\n"ANSI_COLOR_RESET,
                    process->pid, time);
     }
     else if (strcmp(state, "preempted") == 0 || strcmp(state, "blocked") == 0)
     {
-        fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
+        sprintf(log_message, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
                 time, process->id, state, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
-        fflush(log_file);
-
+                
         if (DEBUG)
             printf(ANSI_COLOR_GREEN"[SCHEDULER] Process %d %s at time %d\n"ANSI_COLOR_RESET,
                    process->pid, state, time);
     }
     else
     {
-        fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
+        sprintf(log_message, "At time %d process %d %s arr %d total %d remain %d wait %d\n",
                 time, process->id, state, process->arrival_time, process->runtime,
                 process->remaining_time, process->waiting_time);
-        fflush(log_file);
     }
 
-    usleep(10000);
+    // Use file mutex to ensure atomic write
+    static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+    
+    pthread_mutex_lock(&log_mutex);
+    
+    // Write the complete message at once
+    fputs(log_message, log_file);
+    
+    // Ensure the data is written to disk
+    fflush(log_file);
+    
+    // On POSIX systems, fsync forces the OS to flush to disk
+    #ifdef _POSIX_VERSION
+    fsync(fileno(log_file));
+    #endif
+    
+    pthread_mutex_unlock(&log_mutex);
+    
+    // Optional sleep only if needed
+    usleep(5000); // Reduced sleep time since we're using proper synchronization
 }
 
 void generate_statistics()
